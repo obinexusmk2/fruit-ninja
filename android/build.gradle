@@ -1,0 +1,36 @@
+buildscript {
+    ext {
+        buildToolsVersion = "36.0.0"
+        minSdkVersion = 24
+        compileSdkVersion = 36
+        targetSdkVersion = 36
+        ndkVersion = "27.1.12297006"
+        ndkPath = "C:\\Users\\OBINexus\\Android\\Sdk\\ndk\\27.1.12297006"
+        kotlinVersion = "2.1.20"
+    }
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath("com.android.tools.build:gradle")
+        classpath("com.facebook.react:react-native-gradle-plugin")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
+    }
+}
+
+apply plugin: "com.facebook.react.rootproject"
+
+// Force all library subprojects to use the SDK versions we have installed,
+// avoiding attempts to download build-tools;35 which needs license acceptance.
+subprojects {
+    plugins.whenPluginAdded { plugin ->
+        if (plugin instanceof com.android.build.gradle.LibraryPlugin ||
+            plugin instanceof com.android.build.gradle.AppPlugin) {
+            android {
+                compileSdkVersion rootProject.ext.compileSdkVersion
+                buildToolsVersion rootProject.ext.buildToolsVersion
+            }
+        }
+    }
+}
