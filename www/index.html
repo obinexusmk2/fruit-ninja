@@ -869,6 +869,9 @@ async function runReady() {
     if (typeof Hands === 'undefined' || typeof Camera === 'undefined')
       throw new Error('MediaPipe not loaded');
 
+    if (!navigator.mediaDevices?.getUserMedia)
+      throw new Error('getUserMedia not available — open via http://localhost or https://');
+
     mpHands = new Hands({
       locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`,
     });
