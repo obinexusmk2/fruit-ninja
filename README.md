@@ -1,6 +1,8 @@
 # Fruit Ninja — React Native TypeScript
 ```sh
 $ curl -L https://github.com/obinexusmk2/fruit-ninja/archive/refs/heads/main.zip -o fruit-ninja.zip
+$ unzip fruit-ninja.zip
+$ cd fruit-ninja-main/www
 ```
 
 A native Android Fruit Ninja game built with React Native, Skia, and a custom MMUKO boot sequence.
