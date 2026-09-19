@@ -1,78 +1,51 @@
-import React, {useCallback, useEffect, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
   StyleSheet,
+  Text,
   View,
-  useWindowDimensions,
-  type GestureResponderEvent,
+  type LayoutChangeEvent,
+  type NativeSyntheticEvent,
 } from 'react-native';
-import {
-  Canvas,
-  createPicture,
-  Picture,
-  useImage,
-} from '@shopify/react-native-skia';
+import {Canvas, createPicture, Picture, useImage} from '@shopify/react-native-skia';
 import type {SkImage, SkPicture} from '@shopify/react-native-skia';
-import {FruitPool} from './objectPool';
-import {
-  burstCount,
-  nextSpawnInterval,
-  spawnFruit,
-} from './fruitSpawner';
-import {trailHitsCircle} from './collisionDetection';
-import {drawBackground} from '../skia/drawBackground';
+import {GameSimulation} from './simulation';
+import {drawBackground, drawCameraWash} from '../skia/drawBackground';
 import {drawBlade} from '../skia/drawBlade';
 import {drawFruit, drawSplash} from '../skia/drawFruit';
 import {SPRITES, FRUIT_SPLASH_KEY} from './assets';
-import type {BladeTrail, FruitEntity, FruitKind, GameState} from './types';
-import {
-  GRAVITY,
-  HALF_KICK_V,
-  HALF_LATERAL_V,
-  LIVES_START,
-  SPLASH_DURATION,
-  TRAIL_MAX_POINTS,
-} from './constants';
+import type {FruitEntity, FruitKind, GameOverReason, SimEvent} from './types';
+import {LIVES_START} from './constants';
 import {HUD} from '../ui/HUD';
+import {noHaptics, type Haptics} from '../ui/haptics';
+import type {BladeSet} from '../input/bladeSet';
+import {TouchAdapter, type TouchPhase} from '../input/touchAdapter';
+import {touchInputFromEvent, type RawTouchEvent} from '../input/touchBinding';
+import {defaultClock, type BladeCount, type Clock, type InputMode} from '../input/types';
 
-interface GameScreenProps {
-  onGameOver: (score: number) => void;
+/** Longest we wait for sprites before starting anyway. */
+export const ASSET_WAIT_TIMEOUT_MS = 5000;
+
+export interface GameScreenProps {
+  /** Shared blade trails; the input layer writes them, this screen reads them. */
+  blades: BladeSet;
+  mode: InputMode;
+  /** false while paused or calibrating: the loop stops and timing is reset on resume. */
+  running: boolean;
+  /** 'image' draws the game background; 'camera' leaves the canvas transparent over the preview. */
+  backdrop: 'image' | 'camera';
+  bladeCount?: BladeCount;
+  reducedMotion?: boolean;
+  haptics?: Haptics;
+  /** Called exactly once per game, when the game ends. */
+  onGameOver: (score: number, reason: GameOverReason) => void;
+  onPause?: () => void;
+  clock?: Clock;
+  /** Test hook: deterministic random source. */
+  rng?: () => number;
 }
 
-function makeTrail(color: string): BladeTrail {
-  return {points: [], active: false, color};
-}
-
-function sliceEntity(entity: FruitEntity, sliceAngle: number): void {
-  entity.state = 'sliced';
-  entity.half1x = entity.x;
-  entity.half1y = entity.y;
-  entity.half1vx = entity.vx - Math.cos(sliceAngle) * HALF_LATERAL_V;
-  entity.half1vy = entity.vy + HALF_KICK_V;
-  entity.half1rot = entity.rotation;
-  entity.half2x = entity.x;
-  entity.half2y = entity.y;
-  entity.half2vx = entity.vx + Math.cos(sliceAngle) * HALF_LATERAL_V;
-  entity.half2vy = entity.vy + HALF_KICK_V;
-  entity.half2rot = entity.rotation;
-  entity.splashX = entity.x;
-  entity.splashY = entity.y;
-  entity.splashTimer = SPLASH_DURATION;
-}
-
-function sliceAngleFromTrail(trail: BladeTrail): number {
-  const pts = trail.points;
-  const n = pts.length;
-  if (n < 2) return 0;
-  const a = pts[n - 2]!;
-  const b = pts[n - 1]!;
-  return Math.atan2(b.y - a.y, b.x - a.x);
-}
-
-export function GameScreen({onGameOver}: GameScreenProps): React.JSX.Element {
-  const {width: screenW, height: screenH} = useWindowDimensions();
-
-  // Pre-load all Skia images
-  const images: Record<string, SkImage | null> = {
+function useSprites(): Record<string, SkImage | null> {
+  return {
     apple: useImage(SPRITES.apple),
     apple_half_1: useImage(SPRITES.apple_half_1),
     apple_half_2: useImage(SPRITES.apple_half_2),
@@ -98,204 +71,225 @@ export function GameScreen({onGameOver}: GameScreenProps): React.JSX.Element {
     splash_yellow: useImage(SPRITES.splash_yellow),
     background: useImage(SPRITES.background),
   };
+}
 
-  // Mutable game state — updated in the RAF loop without triggering re-renders
-  const poolRef = useRef(new FruitPool());
-  const trail0Ref = useRef<BladeTrail>(makeTrail('#00FFFF'));
-  const trail1Ref = useRef<BladeTrail>(makeTrail('#FF6600'));
-  const gameStateRef = useRef<GameState>({
-    score: 0,
-    lives: LIVES_START,
-    isGameOver: false,
-    frameCount: 0,
-    spawnInterval: nextSpawnInterval(),
-    nextSpawnAt: 60,
-  });
-
-  // React state for HUD and game over (only updated when these values change)
-  const [score, setScore] = useState(0);
-  const [lives, setLives] = useState(LIVES_START);
-  const [picture, setPicture] = useState<SkPicture>(() =>
-    createPicture(() => {}),
-  );
-
-  const rafRef = useRef<ReturnType<typeof requestAnimationFrame> | null>(null);
+export function GameScreen({
+  blades,
+  mode,
+  running,
+  backdrop,
+  bladeCount = 2,
+  reducedMotion = false,
+  haptics = noHaptics,
+  onGameOver,
+  onPause,
+  clock = defaultClock,
+  rng = Math.random,
+}: GameScreenProps): React.JSX.Element {
+  const images = useSprites();
   const imagesRef = useRef(images);
   imagesRef.current = images;
 
-  const gameLoop = useCallback(() => {
-    const gs = gameStateRef.current;
-    if (gs.isGameOver) return;
-
-    gs.frameCount++;
-    const pool = poolRef.current;
-    const imgs = imagesRef.current;
-
-    // Physics update
-    let livesChanged = false;
-    pool.forEachActive((e: FruitEntity) => {
-      if (e.state === 'whole' || e.state === 'exploding') {
-        e.vy += GRAVITY;
-        e.x += e.vx;
-        e.y += e.vy;
-        e.rotation += e.rotationSpeed;
-      } else if (e.state === 'sliced') {
-        e.half1vy += GRAVITY;
-        e.half1x += e.half1vx;
-        e.half1y += e.half1vy;
-        e.half1rot += e.rotationSpeed;
-        e.half2vy += GRAVITY;
-        e.half2x += e.half2vx;
-        e.half2y += e.half2vy;
-        e.half2rot -= e.rotationSpeed;
-      }
-      if (e.splashTimer > 0) e.splashTimer--;
-
-      // Cull off-screen
-      const refY = e.state === 'sliced'
-        ? Math.max(e.half1y, e.half2y)
-        : e.y;
-      if (refY > screenH + 120) {
-        if (e.state === 'whole') {
-          gs.lives--;
-          livesChanged = true;
-        }
-        pool.release(e);
-      }
-    });
-
-    if (livesChanged) {
-      setLives(gs.lives);
-      if (gs.lives <= 0) {
-        gs.isGameOver = true;
-        onGameOver(gs.score);
-        return;
-      }
+  // Do not start the clock until the sprites exist: otherwise fruit could be
+  // invisible (and cost lives) while assets are still loading, which happens
+  // in debug builds where sprites are fetched from Metro. A timeout keeps one
+  // broken asset from blocking the game forever.
+  const spritesLoaded = Object.values(images).every(Boolean);
+  const [assetWaitExpired, setAssetWaitExpired] = useState(false);
+  useEffect(() => {
+    if (spritesLoaded) {
+      return;
     }
+    const id = setTimeout(() => setAssetWaitExpired(true), ASSET_WAIT_TIMEOUT_MS);
+    return () => clearTimeout(id);
+  }, [spritesLoaded]);
+  const assetsReady = spritesLoaded || assetWaitExpired;
 
-    // Spawn fruits
-    if (gs.frameCount >= gs.nextSpawnAt) {
-      const n = burstCount();
-      for (let i = 0; i < n; i++) {
-        spawnFruit(pool, screenW, screenH);
-      }
-      gs.spawnInterval = nextSpawnInterval();
-      gs.nextSpawnAt = gs.frameCount + gs.spawnInterval;
-    }
+  // Mutable game objects live in refs so the frame loop never triggers a
+  // re-render by itself. Lazily created (a plain `useRef(new X())` would
+  // construct a new object on EVERY render).
+  const simRef = useRef<GameSimulation | null>(null);
+  const touchRef = useRef<TouchAdapter | null>(null);
+  const [ready, setReady] = useState(false);
+  const sizeRef = useRef({width: 0, height: 0});
 
-    // Collision detection — two blade trails
-    let scoreChanged = false;
-    for (const trail of [trail0Ref.current, trail1Ref.current]) {
-      if (!trail.active || trail.points.length < 2) continue;
-      const angle = sliceAngleFromTrail(trail);
-      pool.forEachActive((e: FruitEntity) => {
-        if (e.state !== 'whole') return;
-        if (!trailHitsCircle(trail, e.x, e.y, e.kind === 'bomb')) return;
-        if (e.kind === 'bomb') {
-          e.state = 'exploding';
-          gs.isGameOver = true;
-          onGameOver(gs.score);
-        } else {
-          sliceEntity(e, angle);
-          gs.score++;
-          scoreChanged = true;
-        }
-      });
-    }
-    if (scoreChanged) setScore(gs.score);
+  const [hud, setHud] = useState({score: 0, lives: LIVES_START});
+  const hudRef = useRef(hud);
+  const [picture, setPicture] = useState<SkPicture | null>(null);
 
-    // Build Skia picture
-    const newPicture = createPicture(
-      canvas => {
-        drawBackground(canvas, imgs.background ?? null, screenW, screenH);
-        pool.forEachActive((e: FruitEntity) => {
-          drawFruit(canvas, e, imgs);
-          if (e.splashTimer > 0 && e.kind !== 'bomb') {
-            const splashKey = FRUIT_SPLASH_KEY[e.kind as FruitKind] ?? 'splash_red';
-            drawSplash(canvas, e, imgs[splashKey] ?? null);
-          }
-        });
-        drawBlade(canvas, trail0Ref.current);
-        drawBlade(canvas, trail1Ref.current);
-      },
-      {x: 0, y: 0, width: screenW, height: screenH},
-    );
-    setPicture(newPicture);
+  const gameOverSent = useRef(false);
+  const lastFrameRef = useRef<number | null>(null);
+  const rafRef = useRef<ReturnType<typeof requestAnimationFrame> | null>(null);
 
-    rafRef.current = requestAnimationFrame(gameLoop);
-  }, [screenW, screenH, onGameOver]);
+  // Props read inside the loop are mirrored into refs so the loop is stable.
+  const propsRef = useRef({onGameOver, haptics, reducedMotion, backdrop, mode});
+  propsRef.current = {onGameOver, haptics, reducedMotion, backdrop, mode};
+
+  if (!touchRef.current) {
+    touchRef.current = new TouchAdapter(blades, bladeCount);
+  }
 
   useEffect(() => {
-    rafRef.current = requestAnimationFrame(gameLoop);
-    return () => {
-      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+    touchRef.current?.setBladeCount(bladeCount);
+  }, [bladeCount]);
+
+  const onLayout = useCallback(
+    (e: LayoutChangeEvent) => {
+      const {width, height} = e.nativeEvent.layout;
+      if (width <= 0 || height <= 0) {
+        return;
+      }
+      sizeRef.current = {width, height};
+      if (!simRef.current) {
+        simRef.current = new GameSimulation({width, height}, blades.trails, rng);
+        setReady(true);
+      } else {
+        simRef.current.resize({width, height});
+      }
+    },
+    [blades, rng],
+  );
+
+  const handleEvents = useCallback((sim: GameSimulation, events: SimEvent[]) => {
+    const {haptics: h, onGameOver: over} = propsRef.current;
+    for (const ev of events) {
+      if (ev.type === 'slice') {
+        h.slice();
+      } else if (ev.type === 'bomb') {
+        h.bomb();
+      } else if (ev.type === 'miss') {
+        h.miss();
+      } else if (ev.type === 'gameover' && !gameOverSent.current) {
+        gameOverSent.current = true;
+        over(ev.score, ev.reason);
+      }
+    }
+    const {score, lives} = sim.state;
+    if (hudRef.current.score !== score || hudRef.current.lives !== lives) {
+      hudRef.current = {score, lives};
+      setHud(hudRef.current);
+    }
+  }, []);
+
+  const buildPicture = useCallback((sim: GameSimulation): SkPicture => {
+    const cfg = sim.getConfig();
+    const {width, height} = cfg.viewport;
+    const imgs = imagesRef.current;
+    const p = propsRef.current;
+    const bladeScale = cfg.unit / 360;
+    return createPicture(
+      canvas => {
+        if (p.backdrop === 'image') {
+          drawBackground(canvas, imgs.background ?? null, width, height);
+        } else {
+          drawCameraWash(canvas, width, height);
+        }
+        sim.pool.forEachActive((e: FruitEntity) => {
+          drawFruit(canvas, e, imgs, cfg.spriteSize, p.reducedMotion);
+          if (
+            !p.reducedMotion &&
+            e.splashTimer > 0 &&
+            e.kind !== 'bomb' &&
+            e.state === 'sliced'
+          ) {
+            const key = FRUIT_SPLASH_KEY[e.kind as FruitKind] ?? 'splash_red';
+            drawSplash(canvas, e, imgs[key] ?? null, cfg.spriteSize, cfg.splashDurationMs);
+          }
+        });
+        for (const trail of blades.trails) {
+          drawBlade(canvas, trail, bladeScale);
+        }
+      },
+      {x: 0, y: 0, width, height},
+    );
+  }, [blades]);
+
+  // The frame loop. It runs only while `running`; every (re)start discards the
+  // time spent paused and any stale blade segments.
+  useEffect(() => {
+    const sim = simRef.current;
+    if (!running || !ready || !assetsReady || !sim) {
+      return;
+    }
+    lastFrameRef.current = null;
+    sim.resetTiming();
+    blades.clear(); // no stale segments may survive a pause/resume
+
+    const loop = () => {
+      const now = clock();
+      const last = lastFrameRef.current;
+      lastFrameRef.current = now;
+      const delta = last === null ? 0 : now - last;
+
+      blades.prune(now);
+      sim.advance(delta, now);
+      handleEvents(sim, sim.drainEvents());
+      setPicture(buildPicture(sim));
+
+      if (sim.state.phase === 'running') {
+        rafRef.current = requestAnimationFrame(loop);
+      } else {
+        rafRef.current = null;
+      }
     };
-  }, [gameLoop]);
+    rafRef.current = requestAnimationFrame(loop);
+    return () => {
+      if (rafRef.current != null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+    };
+  }, [running, ready, assetsReady, blades, clock, handleEvents, buildPicture]);
 
-  // Multi-touch handlers — track up to 2 simultaneous fingers
-  const onTouchStart = useCallback((e: GestureResponderEvent) => {
-    const touches = e.nativeEvent.touches;
-    if (touches[0]) {
-      trail0Ref.current = {
-        ...trail0Ref.current,
-        points: [{x: touches[0].pageX, y: touches[0].pageY}],
-        active: true,
-      };
+  // Pausing or leaving the screen must not leave a finger stroke behind.
+  useEffect(() => {
+    if (!running) {
+      touchRef.current?.cancelAll();
     }
-    if (touches[1]) {
-      trail1Ref.current = {
-        ...trail1Ref.current,
-        points: [{x: touches[1].pageX, y: touches[1].pageY}],
-        active: true,
-      };
-    }
-  }, []);
+  }, [running]);
+  useEffect(
+    () => () => {
+      touchRef.current?.cancelAll();
+    },
+    [],
+  );
 
-  const onTouchMove = useCallback((e: GestureResponderEvent) => {
-    const touches = e.nativeEvent.touches;
-    if (touches[0]) {
-      const t = trail0Ref.current;
-      const pts = [...t.points, {x: touches[0].pageX, y: touches[0].pageY}];
-      trail0Ref.current = {
-        ...t,
-        points: pts.slice(-TRAIL_MAX_POINTS),
-        active: true,
-      };
-    }
-    if (touches[1]) {
-      const t = trail1Ref.current;
-      const pts = [...t.points, {x: touches[1].pageX, y: touches[1].pageY}];
-      trail1Ref.current = {
-        ...t,
-        points: pts.slice(-TRAIL_MAX_POINTS),
-        active: true,
-      };
-    }
-  }, []);
-
-  const onTouchEnd = useCallback((e: GestureResponderEvent) => {
-    const remaining = e.nativeEvent.touches.length;
-    if (remaining === 0) {
-      trail0Ref.current = {...trail0Ref.current, points: [], active: false};
-      trail1Ref.current = {...trail1Ref.current, points: [], active: false};
-    } else if (remaining === 1) {
-      trail1Ref.current = {...trail1Ref.current, points: [], active: false};
-    }
-  }, []);
+  // Stable handlers (built once per clock) so the touch view is not re-created
+  // on every frame.
+  const touchHandlers = useMemo(() => {
+    const make = (phase: TouchPhase) => (e: NativeSyntheticEvent<unknown>) => {
+      touchRef.current?.handle(
+        touchInputFromEvent(phase, e.nativeEvent as RawTouchEvent, clock()),
+      );
+    };
+    return {
+      onTouchStart: make('start'),
+      onTouchMove: make('move'),
+      onTouchEnd: make('end'),
+      onTouchCancel: make('cancel'),
+    };
+  }, [clock]);
 
   return (
-    <View
-      style={styles.container}
-      onStartShouldSetResponder={() => true}
-      onMoveShouldSetResponder={() => true}
-      onResponderGrant={onTouchStart}
-      onResponderMove={onTouchMove}
-      onResponderRelease={onTouchEnd}
-      onResponderTerminate={onTouchEnd}>
+    <View style={styles.container} onLayout={onLayout}>
       <Canvas style={StyleSheet.absoluteFill} pointerEvents="none">
-        <Picture picture={picture} />
+        {picture ? <Picture picture={picture} /> : null}
       </Canvas>
-      <HUD score={score} lives={lives} />
+      {mode === 'touch' ? (
+        // A leaf view exactly over the canvas: locationX/Y are canvas-local.
+        <View
+          style={StyleSheet.absoluteFill}
+          {...touchHandlers}
+          importantForAccessibility="no"
+          testID="touch-surface"
+        />
+      ) : null}
+      <HUD score={hud.score} lives={hud.lives} livesMax={LIVES_START} onPause={onPause} />
+      {!assetsReady ? (
+        <View style={styles.loading} pointerEvents="none" accessibilityLiveRegion="polite">
+          <Text style={styles.loadingText}>LOADING</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -303,6 +297,19 @@ export function GameScreen({onGameOver}: GameScreenProps): React.JSX.Element {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000',
+    // Transparent so the camera preview (a sibling behind this screen) shows
+    // through in hand mode; the touch background is drawn by the canvas.
+    backgroundColor: 'transparent',
+  },
+  loading: {
+    ...StyleSheet.absoluteFill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingText: {
+    fontFamily: 'monospace',
+    fontSize: 18,
+    letterSpacing: 4,
+    color: '#00FFFF',
   },
 });

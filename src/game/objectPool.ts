@@ -20,14 +20,23 @@ function makeFruitEntity(): FruitEntity {
 function resetFruitEntity(e: FruitEntity): void {
   e.state = 'inactive';
   e.active = false;
-  e.splashTimer = 0;
+  e.kind = 'apple';
+  e.x = 0; e.y = 0; e.vx = 0; e.vy = 0;
+  e.rotation = 0; e.rotationSpeed = 0;
+  e.half1x = 0; e.half1y = 0; e.half1vx = 0; e.half1vy = 0; e.half1rot = 0;
+  e.half2x = 0; e.half2y = 0; e.half2vx = 0; e.half2vy = 0; e.half2rot = 0;
+  e.splashX = 0; e.splashY = 0; e.splashTimer = 0;
 }
 
+/**
+ * Fixed-capacity entity pool. `acquire()` returns null when every slot is in
+ * use (pool exhaustion); callers must handle that instead of allocating.
+ */
 export class FruitPool {
   private pool: FruitEntity[] = [];
 
-  constructor() {
-    for (let i = 0; i < POOL_SIZE; i++) {
+  constructor(readonly capacity: number = POOL_SIZE) {
+    for (let i = 0; i < capacity; i++) {
       this.pool.push(makeFruitEntity());
     }
   }
@@ -46,10 +55,36 @@ export class FruitPool {
     resetFruitEntity(e);
   }
 
+  /** Releases every entity (new game). */
+  releaseAll(): void {
+    for (const e of this.pool) {
+      if (e.active) {
+        resetFruitEntity(e);
+      }
+    }
+  }
+
   forEachActive(cb: (e: FruitEntity) => void): void {
     for (const e of this.pool) {
-      if (e.active) cb(e);
+      if (e.active) {
+        cb(e);
+      }
     }
+  }
+
+  /** Backing array for allocation-free iteration; check `active` yourself. */
+  entities(): readonly FruitEntity[] {
+    return this.pool;
+  }
+
+  activeCount(): number {
+    let n = 0;
+    for (const e of this.pool) {
+      if (e.active) {
+        n++;
+      }
+    }
+    return n;
   }
 
   activeEntities(): FruitEntity[] {

@@ -1,12 +1,14 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {
+  Pressable,
   StyleSheet,
   Text,
   View,
   useWindowDimensions,
 } from 'react-native';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {Canvas, createPicture, Picture} from '@shopify/react-native-skia';
-import {runMmukoBoot, type PhaseCallback} from './mmukoBoot';
+import {runMmukoBoot, type BootCancel, type PhaseCallback} from './mmukoBoot';
 import {
   PHASE_LABELS,
   MMUKO_BOOT_OUTCOME,
@@ -17,15 +19,19 @@ import {drawBootRing} from '../skia/drawBootRing';
 
 interface BootScreenProps {
   onBootComplete: () => void;
+  /** Time per phase. The original 800 ms made the sequence ~5.4 s; 250 ms is ~2 s. */
+  phaseDelayMs?: number;
+  /** Draw a still ring and skip the spinning/pulsing animation. */
+  reducedMotion?: boolean;
 }
 
-interface PhaseEntry {
-  phase: number;
-  state: TrinaryState;
-}
-
-export function BootScreen({onBootComplete}: BootScreenProps): React.JSX.Element {
+export function BootScreen({
+  onBootComplete,
+  phaseDelayMs = 250,
+  reducedMotion = false,
+}: BootScreenProps): React.JSX.Element {
   const {width: screenW, height: screenH} = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const cx = screenW / 2;
   const cy = screenH / 2;
 
@@ -43,49 +49,84 @@ export function BootScreen({onBootComplete}: BootScreenProps): React.JSX.Element
     }),
   );
 
-  // Ring animation loop
-  const animate = useCallback(() => {
-    angleRef.current += 0.015;
-    const angle = angleRef.current;
-    const phases = completedPhases;
+  // Ring animation loop (a single redraw when reduced motion is requested).
+  const draw = useCallback(() => {
     setPicture(
       createPicture(canvas => {
-        drawBootRing(canvas, cx, cy, angle, phases, screenW, screenH);
+        drawBootRing(canvas, cx, cy, angleRef.current, completedPhases, screenW, screenH);
       }),
     );
-    rafRef.current = requestAnimationFrame(animate);
   }, [cx, cy, screenW, screenH, completedPhases]);
 
   useEffect(() => {
+    if (reducedMotion) {
+      draw();
+      return;
+    }
+    const animate = () => {
+      angleRef.current += 0.015;
+      draw();
+      rafRef.current = requestAnimationFrame(animate);
+    };
     rafRef.current = requestAnimationFrame(animate);
     return () => {
-      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+      if (rafRef.current != null) {
+        cancelAnimationFrame(rafRef.current);
+      }
     };
-  }, [animate]);
+  }, [draw, reducedMotion]);
 
-  // Run the MMUKO boot sequence on mount
+  // Run the (decorative) boot sequence on mount; stop it if the screen unmounts.
+  const doneRef = useRef(false);
+  const finish = useCallback(() => {
+    if (!doneRef.current) {
+      doneRef.current = true;
+      onBootComplete();
+    }
+  }, [onBootComplete]);
+
   useEffect(() => {
+    const cancel: BootCancel = {cancelled: false};
+    let tail: ReturnType<typeof setTimeout> | null = null;
     const onPhase: PhaseCallback = (phase, state) => {
       setPhaseStates(prev => ({...prev, [phase]: state}));
-      if (state === 'YES') setCompletedPhases(phase);
+      if (state === 'YES') {
+        setCompletedPhases(phase);
+      }
     };
-
-    runMmukoBoot(onPhase, 800).then(result => {
+    runMmukoBoot(onPhase, phaseDelayMs, cancel).then(result => {
+      if (cancel.cancelled) {
+        return;
+      }
       setHandoff(result);
-      setTimeout(() => onBootComplete(), 600);
+      tail = setTimeout(finish, 350);
     });
-  }, [onBootComplete]);
+    return () => {
+      cancel.cancelled = true;
+      if (tail) {
+        clearTimeout(tail);
+      }
+    };
+  }, [finish, phaseDelayMs]);
 
   const isPassed = handoff?.outcome === MMUKO_BOOT_OUTCOME.PASS;
 
   return (
-    <View style={styles.container}>
-      <Canvas style={StyleSheet.absoluteFill}>
+    <Pressable
+      style={styles.container}
+      onPress={finish}
+      accessibilityRole="button"
+      accessibilityLabel="Start-up animation. Tap to skip."
+      accessibilityHint="Decorative animation only. No device or security checks are performed.">
+      <Canvas style={StyleSheet.absoluteFill} pointerEvents="none">
         <Picture picture={picture} />
       </Canvas>
 
       {/* Terminal HUD overlay */}
-      <View style={styles.hud} pointerEvents="none">
+      <View
+        style={[styles.hud, {top: insets.top + 24}]}
+        pointerEvents="none"
+        importantForAccessibility="no-hide-descendants">
         <Text style={styles.title}>MMUKO-OS RING BOOT v0.1 • NSIGII</Text>
         <Text style={styles.subtitle}>firmware_id: NSIGII | revision: 0x0001</Text>
         <View style={styles.divider} />
@@ -109,16 +150,17 @@ export function BootScreen({onBootComplete}: BootScreenProps): React.JSX.Element
             <Text style={styles.passLine}>
               completed_phases: 6/6
             </Text>
-            <Text style={styles.passLine}>
-              validation_flags: 0x{handoff!.validationFlags.toString(16).padStart(8, '0').toUpperCase()}
-            </Text>
-            <Text style={styles.passLine}>
-              handoff_checksum: 0x{handoff!.handoffChecksum.toString(16).toUpperCase()}
-            </Text>
           </>
         )}
+        <View style={styles.divider} />
+        <Text style={styles.disclaimer}>
+          Decorative start-up sequence. No device, camera or security checks are
+          performed.
+        </Text>
       </View>
-    </View>
+
+      <Text style={[styles.skip, {bottom: insets.bottom + 24}]}>tap to skip</Text>
+    </Pressable>
   );
 }
 
@@ -129,7 +171,6 @@ const styles = StyleSheet.create({
   },
   hud: {
     position: 'absolute',
-    top: 40,
     left: 16,
     right: 16,
     backgroundColor: 'rgba(0,0,0,0.85)',
@@ -173,5 +214,19 @@ const styles = StyleSheet.create({
     color: '#00FF88',
     fontSize: 11,
     marginVertical: 1,
+  },
+  disclaimer: {
+    fontFamily: 'monospace',
+    color: '#9AA',
+    fontSize: 10,
+  },
+  skip: {
+    position: 'absolute',
+    alignSelf: 'center',
+    fontFamily: 'monospace',
+    color: '#00FFFF',
+    opacity: 0.6,
+    fontSize: 12,
+    letterSpacing: 2,
   },
 });

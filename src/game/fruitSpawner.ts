@@ -1,47 +1,54 @@
 import type {FruitPool} from './objectPool';
-import type {FruitKind} from './types';
-import {
-  BOMB_CHANCE,
-  FRUIT_KINDS,
-  HALF_LATERAL_V,
-  SPAWN_BURST_MAX,
-  SPAWN_BURST_MIN,
-  SPAWN_INTERVAL_MAX,
-  SPAWN_INTERVAL_MIN,
-} from './constants';
+import type {FruitEntity, FruitKind} from './types';
+import type {GameConfig} from './config';
+import {FRUIT_KINDS} from './constants';
+import {randInt, randRange, type Rng} from './rng';
 
-function rnd(min: number, max: number): number {
-  return Math.random() * (max - min) + min;
-}
-
+/**
+ * Launches one fruit or bomb from below the viewport on a parabolic arc.
+ * The launch speed is derived from a target apex height so the arc always fits
+ * the playable area regardless of screen size: v = sqrt(2 * g * apex).
+ * Returns null when the pool is exhausted.
+ */
 export function spawnFruit(
   pool: FruitPool,
-  screenW: number,
-  screenH: number,
-): void {
-  const isBomb = Math.random() < BOMB_CHANCE;
+  config: GameConfig,
+  rng: Rng,
+): FruitEntity | null {
+  const isBomb = rng() < config.bombChance;
   const kind: FruitKind | 'bomb' = isBomb
     ? 'bomb'
-    : FRUIT_KINDS[Math.floor(Math.random() * FRUIT_KINDS.length)] ?? 'apple';
+    : FRUIT_KINDS[Math.floor(rng() * FRUIT_KINDS.length)] ?? 'apple';
 
   const entity = pool.acquire();
-  if (!entity) return;
+  if (!entity) {
+    return null;
+  }
+
+  const {width, height} = config.viewport;
+  const apex = randRange(rng, config.apexMin, config.apexMax);
 
   entity.kind = kind;
   entity.state = 'whole';
-  entity.x = rnd(screenW * 0.1, screenW * 0.9);
-  entity.y = screenH + 30;
-  entity.vx = rnd(-HALF_LATERAL_V, HALF_LATERAL_V);
-  entity.vy = rnd(-24, -18);
-  entity.rotation = rnd(0, Math.PI * 2);
-  entity.rotationSpeed = rnd(-0.1, 0.1);
+  entity.x = randRange(rng, width * 0.1, width * 0.9);
+  entity.y = height + config.spawnMarginY;
+  entity.vx = randRange(rng, -config.launchVx, config.launchVx);
+  entity.vy = -Math.sqrt(2 * config.gravity * apex);
+  entity.rotation = randRange(rng, 0, Math.PI * 2);
+  entity.rotationSpeed = randRange(
+    rng,
+    -config.maxRotationSpeed,
+    config.maxRotationSpeed,
+  );
   entity.splashTimer = 0;
+  return entity;
 }
 
-export function nextSpawnInterval(): number {
-  return Math.floor(rnd(SPAWN_INTERVAL_MIN, SPAWN_INTERVAL_MAX));
+/** Milliseconds until the next spawn burst. */
+export function nextSpawnDelay(config: GameConfig, rng: Rng): number {
+  return randRange(rng, config.spawnIntervalMinMs, config.spawnIntervalMaxMs);
 }
 
-export function burstCount(): number {
-  return Math.floor(rnd(SPAWN_BURST_MIN, SPAWN_BURST_MAX + 1));
+export function burstCount(config: GameConfig, rng: Rng): number {
+  return randInt(rng, config.spawnBurstMin, config.spawnBurstMax);
 }

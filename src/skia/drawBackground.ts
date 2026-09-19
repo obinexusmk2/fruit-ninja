@@ -20,3 +20,18 @@ export function drawBackground(
     canvas.drawRect({x: 0, y: 0, width: screenW, height: screenH}, paint);
   }
 }
+
+/**
+ * Hand mode: the camera preview is a native view behind the (transparent)
+ * canvas. Only a light dark wash is drawn so fruit stay readable against a busy
+ * camera image (same 0.22 alpha as the browser version).
+ */
+export function drawCameraWash(
+  canvas: SkCanvas,
+  screenW: number,
+  screenH: number,
+): void {
+  const paint = Skia.Paint();
+  paint.setColor(Skia.Color('rgba(0,0,0,0.22)'));
+  canvas.drawRect({x: 0, y: 0, width: screenW, height: screenH}, paint);
+}

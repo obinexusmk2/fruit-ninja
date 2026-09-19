@@ -1,0 +1,31 @@
+
+> FruitNinja@0.0.1 test
+> jest --runInBand
+
+FAIL __tests__/App.test.tsx
+  ● Test suite failed to run
+
+    Invariant Violation: TurboModuleRegistry.getEnforcing(...): 'RNGestureHandlerModule' could not be found. Verify that a module by this name is registered in the native binary.
+
+      1 | import React, {useState, useCallback} from 'react';
+    > 2 | import {GestureHandlerRootView} from 'react-native-gesture-handler';
+        | ^
+      3 | import {SafeAreaProvider} from 'react-native-safe-area-context';
+      4 | import {BootScreen} from './boot/BootScreen';
+      5 | import {GameScreen} from './game/GameScreen';
+
+      at invariant (node_modules/invariant/invariant.js:40:15)
+      at Object.getEnforcing (node_modules/react-native/Libraries/TurboModule/TurboModuleRegistry.js:41:12)
+      at Object.getEnforcing (node_modules/react-native-gesture-handler/src/specs/NativeRNGestureHandlerModule.ts:26:36)
+      at Object.require (node_modules/react-native-gesture-handler/src/RNGestureHandlerModule.ts:4:1)
+      at Object.require (node_modules/react-native-gesture-handler/src/init.ts:2:1)
+      at Object.require (node_modules/react-native-gesture-handler/src/index.ts:1:1)
+      at Object.require (src/App.tsx:2:1)
+      at Object.require (App.tsx:1:1)
+      at Object.require (__tests__/App.test.tsx:7:1)
+
+Test Suites: 1 failed, 1 total
+Tests:       0 total
+Snapshots:   0 total
+Time:        0.68 s
+Ran all test suites.

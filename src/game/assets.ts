@@ -1,5 +1,4 @@
 // Static require() map — all paths must be literals for Metro to resolve them.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const SPRITES: Record<string, any> = {
   apple: require('../../assets/apple.png'),
   apple_half_1: require('../../assets/apple_half_1.png'),

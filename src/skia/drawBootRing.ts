@@ -17,8 +17,12 @@ export function drawBootRing(
   bgPaint.setColor(Skia.Color('#000000'));
   canvas.drawRect({x: 0, y: 0, width: screenW, height: screenH}, bgPaint);
 
+  // The ring was designed for a ~560 dp square; shrink it to fit small or
+  // landscape windows instead of clipping.
+  const fit = Math.min(1, Math.min(screenW, screenH) / 560);
   canvas.save();
   canvas.translate(cx, cy);
+  canvas.scale(fit, fit);
   canvas.rotate((angle * 180) / Math.PI, 0, 0);
 
   // 5 concentric rings

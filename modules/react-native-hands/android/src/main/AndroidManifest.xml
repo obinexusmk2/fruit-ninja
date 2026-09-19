@@ -1,0 +1,6 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!--
+      Intentionally empty. The application manifest owns the CAMERA permission
+      and marks the camera hardware features optional (touch play needs no camera).
+    -->
+</manifest>

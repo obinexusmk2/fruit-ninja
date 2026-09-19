@@ -1,6 +1,23 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <uses-permission android:name="android.permission.INTERNET" />
+    <!--
+      Hand mode uses the front camera. It is requested at runtime, only after the
+      player chooses hand mode and has read why (see src/camera). Touch mode
+      never needs it, so every camera hardware feature below is optional:
+      without android:required="false" the CAMERA permission would make Google
+      Play hide the game from phones without a (back) camera or autofocus.
+    -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.front" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+
+    <!--
+      No INTERNET permission here: the game needs no network. Debug builds add it
+      (src/debug) for Metro; release builds strip it (src/release), so the shipped
+      app cannot open a network connection at all.
+    -->
 
     <application
       android:name=".MainApplication"

@@ -5,8 +5,11 @@ buildscript {
         compileSdkVersion = 36
         targetSdkVersion = 36
         ndkVersion = "27.1.12297006"
-        ndkPath = "C:\\Users\\OBINexus\\Android\\Sdk\\ndk\\27.1.12297006"
         kotlinVersion = "2.1.20"
+        // Pinned, tested versions for the hand-tracking module. Do not use
+        // "latest.release": builds must be reproducible.
+        cameraXVersion = "1.6.2"
+        mediaPipeVersion = "1.0.0"
     }
     repositories {
         google()

@@ -1,28 +1,75 @@
-import React from 'react';
-import {StyleSheet, Text, View, Image} from 'react-native';
+import React, {memo} from 'react';
+import {Image, Pressable, StyleSheet, Text, View} from 'react-native';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {SPRITES} from '../game/assets';
 
 interface HUDProps {
   score: number;
   lives: number;
+  livesMax?: number;
+  onPause?: () => void;
 }
 
-export function HUD({score, lives}: HUDProps): React.JSX.Element {
+export const PAUSE_BUTTON_SIZE = 52;
+
+function HUDBase({
+  score,
+  lives,
+  livesMax = 3,
+  onPause,
+}: HUDProps): React.JSX.Element {
+  const insets = useSafeAreaInsets();
+  const lifeSlots = Array.from({length: livesMax}, (_, i) => i);
+
   return (
-    <View style={styles.container} pointerEvents="none">
-      <Text style={styles.score}>{score}</Text>
-      <View style={styles.lives}>
-        {[0, 1, 2].map(i => (
-          <Image
-            key={i}
-            source={SPRITES.apple}
-            style={[styles.lifeIcon, i >= lives && styles.lifeLost]}
-          />
-        ))}
+    <View
+      style={[
+        styles.container,
+        {
+          paddingTop: insets.top + 8,
+          paddingLeft: insets.left + 16,
+          paddingRight: insets.right + 16,
+        },
+      ]}
+      pointerEvents="box-none">
+      <View
+        accessible
+        accessibilityRole="text"
+        accessibilityLabel={`Score ${score}. ${lives} of ${livesMax} lives left.`}
+        style={styles.stats}
+        pointerEvents="none">
+        <Text style={styles.score} maxFontSizeMultiplier={1.3}>
+          {score}
+        </Text>
+        <View style={styles.lives}>
+          {lifeSlots.map(i => (
+            <Image
+              key={i}
+              source={SPRITES.apple}
+              style={[styles.lifeIcon, i >= lives && styles.lifeLost]}
+              accessibilityElementsHidden
+              importantForAccessibility="no"
+            />
+          ))}
+        </View>
       </View>
+
+      {onPause ? (
+        <Pressable
+          onPress={onPause}
+          accessibilityRole="button"
+          accessibilityLabel="Pause game"
+          hitSlop={8}
+          style={({pressed}) => [styles.pause, pressed && styles.pausePressed]}>
+          <View style={styles.pauseBar} />
+          <View style={styles.pauseBar} />
+        </Pressable>
+      ) : null}
     </View>
   );
 }
+
+export const HUD = memo(HUDBase);
 
 const styles = StyleSheet.create({
   container: {
@@ -32,22 +79,24 @@ const styles = StyleSheet.create({
     right: 0,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingTop: 44,
-    paddingHorizontal: 20,
+    alignItems: 'flex-start',
+  },
+  stats: {
+    flexShrink: 1,
   },
   score: {
     fontFamily: 'monospace',
-    fontSize: 36,
+    fontSize: 40,
     fontWeight: 'bold',
     color: '#FFD700',
     textShadowColor: '#000',
     textShadowOffset: {width: 1, height: 1},
-    textShadowRadius: 3,
+    textShadowRadius: 4,
   },
   lives: {
     flexDirection: 'row',
     gap: 6,
+    marginTop: 2,
   },
   lifeIcon: {
     width: 32,
@@ -56,5 +105,26 @@ const styles = StyleSheet.create({
   },
   lifeLost: {
     opacity: 0.25,
+  },
+  pause: {
+    width: PAUSE_BUTTON_SIZE,
+    height: PAUSE_BUTTON_SIZE,
+    borderRadius: PAUSE_BUTTON_SIZE / 2,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderColor: '#00FFFF',
+    borderWidth: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  pausePressed: {
+    backgroundColor: 'rgba(0,255,255,0.35)',
+  },
+  pauseBar: {
+    width: 6,
+    height: 20,
+    borderRadius: 2,
+    backgroundColor: '#00FFFF',
   },
 });

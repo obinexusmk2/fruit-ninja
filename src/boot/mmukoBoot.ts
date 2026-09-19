@@ -1,3 +1,4 @@
+/* eslint-disable no-bitwise -- CRC32 and the phase-flag bitmask are bitwise by definition. */
 import {
   MMUKO_BOOT_OUTCOME,
   PHASE_FLAGS,
@@ -27,11 +28,21 @@ function crc32(str: string): number {
 const delay = (ms: number): Promise<void> =>
   new Promise(resolve => setTimeout(resolve, ms));
 
+/** Lets the caller stop a running sequence (e.g. when the screen unmounts). */
+export interface BootCancel {
+  cancelled: boolean;
+}
+
 // Runs the 6-phase MMUKO boot sequence.
 // Each phase emits MAYBE (uncertainty) then YES (resolved), matching the trinary algebra.
+//
+// NOTE: this is a presentation-only sequence. The phase labels, the handoff
+// record and its CRC describe an animation; nothing here inspects the device,
+// the camera, or any security property, and it must not be reported as such.
 export async function runMmukoBoot(
   onPhase: PhaseCallback,
   phaseDelayMs = 800,
+  cancel?: BootCancel,
 ): Promise<MmukoBootHandoff> {
   const handoff: MmukoBootHandoff = {
     magic: 'MMKO',
@@ -44,8 +55,14 @@ export async function runMmukoBoot(
   };
 
   for (let phase = 1; phase <= 6; phase++) {
+    if (cancel?.cancelled) {
+      return handoff;
+    }
     onPhase(phase, 'MAYBE');
     await delay(phaseDelayMs / 2);
+    if (cancel?.cancelled) {
+      return handoff;
+    }
     onPhase(phase, 'YES');
     await delay(phaseDelayMs / 2);
     handoff.completedPhases = phase;

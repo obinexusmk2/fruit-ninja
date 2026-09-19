@@ -1,0 +1,12 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <!--
+      The release app makes no network connections. Third-party libraries can
+      declare network permissions in their own manifests (MediaPipe pulls in
+      Google's data-transport library); remove them explicitly so that Android
+      denies the app all network access. Verified in the merged release manifest
+      (see docs/android/RELEASE_CHECKLIST.md).
+    -->
+    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
+</manifest>

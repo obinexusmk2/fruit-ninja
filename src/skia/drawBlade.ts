@@ -2,28 +2,37 @@ import type {SkCanvas} from '@shopify/react-native-skia';
 import {Skia, PaintStyle, StrokeCap, StrokeJoin} from '@shopify/react-native-skia';
 import type {BladeTrail} from '../game/types';
 
-export function drawBlade(canvas: SkCanvas, trail: BladeTrail): void {
+/**
+ * Draws a blade trail: a tapered filled ribbon (wide at the newest sample,
+ * narrow at the oldest) plus a thin white centre line.
+ * @param scale width multiplier so the blade stays proportional on any screen.
+ */
+export function drawBlade(canvas: SkCanvas, trail: BladeTrail, scale = 1): void {
   const pts = trail.points;
-  if (pts.length < 2 || !trail.active) return;
+  if (pts.length < 2 || !trail.active) {
+    return;
+  }
 
-  // Build a tapered filled path: wide at head (newest), narrow at tail (oldest)
-  const path = Skia.Path.Make();
+  // PathBuilder replaces the deprecated mutable SkPath.moveTo/lineTo/close
+  // (Skia 2.6+ logs a deprecation warning for each call).
+  const ribbon = Skia.PathBuilder.Make();
   const n = pts.length;
-  const maxW = 14;
-  const minW = 0.5;
+  const maxW = 14 * scale;
+  const minW = 0.5 * scale;
 
-  // Top edge: oldest → newest
   const topX: number[] = [];
   const topY: number[] = [];
   const botX: number[] = [];
   const botY: number[] = [];
 
   for (let i = 0; i < n - 1; i++) {
-    const t = i / (n - 2);
+    const t = n > 2 ? i / (n - 2) : 1;
     const halfW = (minW + (maxW - minW) * t) / 2;
     const a = pts[i];
     const b = pts[i + 1];
-    if (!a || !b) continue;
+    if (!a || !b) {
+      continue;
+    }
     const dx = b.x - a.x;
     const dy = b.y - a.y;
     const len = Math.sqrt(dx * dx + dy * dy) || 1;
@@ -35,32 +44,34 @@ export function drawBlade(canvas: SkCanvas, trail: BladeTrail): void {
     botY.push(a.y - ny);
   }
 
-  if (topX.length === 0) return;
+  if (topX.length === 0) {
+    return;
+  }
 
-  path.moveTo(topX[0]!, topY[0]!);
+  ribbon.moveTo(topX[0]!, topY[0]!);
   for (let i = 1; i < topX.length; i++) {
-    path.lineTo(topX[i]!, topY[i]!);
+    ribbon.lineTo(topX[i]!, topY[i]!);
   }
   for (let i = botX.length - 1; i >= 0; i--) {
-    path.lineTo(botX[i]!, botY[i]!);
+    ribbon.lineTo(botX[i]!, botY[i]!);
   }
-  path.close();
+  ribbon.close();
 
   const fillPaint = Skia.Paint();
   fillPaint.setStyle(PaintStyle.Fill);
   fillPaint.setColor(Skia.Color(trail.color));
   fillPaint.setAlphaf(0.82);
-  canvas.drawPath(path, fillPaint);
+  canvas.drawPath(ribbon.detach(), fillPaint);
 
-  // White glow center line
-  const spine = Skia.Path.Make();
-  spine.moveTo(pts[0]!.x, pts[0]!.y);
+  const spineBuilder = Skia.PathBuilder.Make();
+  spineBuilder.moveTo(pts[0]!.x, pts[0]!.y);
   for (let i = 1; i < n; i++) {
-    spine.lineTo(pts[i]!.x, pts[i]!.y);
+    spineBuilder.lineTo(pts[i]!.x, pts[i]!.y);
   }
+  const spine = spineBuilder.detach();
   const glowPaint = Skia.Paint();
   glowPaint.setStyle(PaintStyle.Stroke);
-  glowPaint.setStrokeWidth(2.5);
+  glowPaint.setStrokeWidth(2.5 * scale);
   glowPaint.setStrokeCap(StrokeCap.Round);
   glowPaint.setStrokeJoin(StrokeJoin.Round);
   glowPaint.setColor(Skia.Color('#FFFFFF'));

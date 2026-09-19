@@ -1,0 +1,66 @@
+FAIL __tests__/baseline/originalDefects.test.tsx
+  original defects (expected to FAIL before the fix)
+    × a swipe that starts and ends inside a fruit still slices it (3 ms)
+    × a bomb that falls off-screen does not cost a life (247 ms)
+    × two bombs sliced in the same frame end the game exactly once (48 ms)
+
+  ● original defects (expected to FAIL before the fix) › a swipe that starts and ends inside a fruit still slices it
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: true
+    Received: false
+
+      48 |       ],
+      49 |     };
+    > 50 |     expect(trailHitsCircle(trail, 100, 100, false)).toBe(true);
+         |                                                     ^
+      51 |   });
+      52 |
+      53 |   test('a bomb that falls off-screen does not cost a life', async () => {
+
+      at Object.toBe (__tests__/baseline/originalDefects.test.tsx:50:53)
+
+  ● original defects (expected to FAIL before the fix) › a bomb that falls off-screen does not cost a life
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 3
+    Received: 2
+
+      70 |
+      71 |     const hud = renderer.root.findByType(HUD);
+    > 72 |     expect(hud.props.lives).toBe(3);
+         |                             ^
+      73 |
+      74 |     await ReactTestRenderer.act(() => {
+      75 |       renderer.unmount();
+
+      at Object.toBe (__tests__/baseline/originalDefects.test.tsx:72:29)
+      at asyncGeneratorStep (node_modules/@babel/runtime/helpers/asyncToGenerator.js:3:17)
+      at _next (node_modules/@babel/runtime/helpers/asyncToGenerator.js:17:9)
+
+  ● original defects (expected to FAIL before the fix) › two bombs sliced in the same frame end the game exactly once
+
+    expect(jest.fn()).toHaveBeenCalledTimes(expected)
+
+    Expected number of calls: 1
+    Received number of calls: 2
+
+      130 |     }
+      131 |
+    > 132 |     expect(onGameOver).toHaveBeenCalledTimes(1);
+          |                        ^
+      133 |
+      134 |     await ReactTestRenderer.act(() => {
+      135 |       renderer.unmount();
+
+      at Object.toHaveBeenCalledTimes (__tests__/baseline/originalDefects.test.tsx:132:24)
+      at asyncGeneratorStep (node_modules/@babel/runtime/helpers/asyncToGenerator.js:3:17)
+      at _next (node_modules/@babel/runtime/helpers/asyncToGenerator.js:17:9)
+
+Test Suites: 1 failed, 1 total
+Tests:       3 failed, 3 total
+Snapshots:   0 total
+Time:        1.088 s, estimated 2 s
+Ran all test suites matching /__tests__\\baseline/i.

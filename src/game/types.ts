@@ -18,12 +18,13 @@ export interface FruitEntity {
   id: number;
   kind: EntityKind;
   state: EntityState;
-  // Whole fruit position
+  // Whole fruit position (viewport pixels, y grows downwards) and velocity (px/s).
   x: number;
   y: number;
   vx: number;
   vy: number;
   rotation: number;
+  // radians per second
   rotationSpeed: number;
   // Half sprites after slicing
   half1x: number;
@@ -38,26 +39,53 @@ export interface FruitEntity {
   half2rot: number;
   splashX: number;
   splashY: number;
+  // Remaining splash / explosion time in milliseconds.
   splashTimer: number;
   active: boolean;
 }
 
+/**
+ * A blade sample. `t` is the sample time in milliseconds on the same monotonic
+ * clock the simulation is driven with (see GameSimulation.advance).
+ */
 export interface TrailPoint {
   x: number;
   y: number;
+  t: number;
 }
 
 export interface BladeTrail {
+  /** Fixed slot: 0 = cyan blade, 1 = orange blade. */
+  slot: number;
+  color: string;
   points: TrailPoint[];
   active: boolean;
-  color: string;
+  /** Increments every time a new stroke starts; segments never cross strokes. */
+  strokeId: number;
 }
+
+export type GamePhase = 'running' | 'gameover';
+export type GameOverReason = 'bomb' | 'lives';
 
 export interface GameState {
   score: number;
   lives: number;
-  isGameOver: boolean;
-  frameCount: number;
-  spawnInterval: number;
-  nextSpawnAt: number;
+  phase: GamePhase;
+  gameOverReason: GameOverReason | null;
+  /** Spawns skipped because every pool slot was in use (diagnostics). */
+  droppedSpawns: number;
 }
+
+export type SimEvent =
+  | {
+      type: 'slice';
+      entityId: number;
+      kind: FruitKind;
+      x: number;
+      y: number;
+      slot: number;
+      score: number;
+    }
+  | {type: 'bomb'; entityId: number; x: number; y: number; slot: number}
+  | {type: 'miss'; entityId: number; kind: FruitKind; lives: number}
+  | {type: 'gameover'; reason: GameOverReason; score: number};

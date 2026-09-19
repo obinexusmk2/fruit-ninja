@@ -1,0 +1,30 @@
+
+> FruitNinja@0.0.1 lint
+> eslint .
+
+
+C:\Users\Nnamdi\Workspace\fruit-ninja\src\App.tsx
+  24:36  warning  Inline style: { flex: 1 }  react-native/no-inline-styles
+
+C:\Users\Nnamdi\Workspace\fruit-ninja\src\boot\BootScreen.tsx
+  22:11  error  'PhaseEntry' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\Nnamdi\Workspace\fruit-ninja\src\boot\mmukoBoot.ts
+  16:11  warning  Unexpected use of '&'    no-bitwise
+  16:19  warning  Unexpected use of '^'    no-bitwise
+  16:33  warning  Unexpected use of '>>>'  no-bitwise
+  16:44  warning  Unexpected use of '>>>'  no-bitwise
+  22:11  warning  Unexpected use of '^'    no-bitwise
+  22:12  warning  Unexpected use of '>>>'  no-bitwise
+  22:32  warning  Unexpected use of '&'    no-bitwise
+  22:33  warning  Unexpected use of '^'    no-bitwise
+  24:10  warning  Unexpected use of '>>>'  no-bitwise
+  24:11  warning  Unexpected use of '^'    no-bitwise
+  52:5   warning  Unexpected use of '|='   no-bitwise
+
+C:\Users\Nnamdi\Workspace\fruit-ninja\src\game\assets.ts
+  2:29  warning  '@typescript-eslint/no-explicit-any' rule is disabled but never reported  eslint-comments/no-unused-disable
+
+✖ 14 problems (1 error, 13 warnings)
+  0 errors and 1 warning potentially fixable with the `--fix` option.
+

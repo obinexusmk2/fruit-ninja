@@ -74,11 +74,16 @@ def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
 android {
     ndkVersion rootProject.ext.ndkVersion
-    ndkPath rootProject.ext.ndkPath
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
     namespace "com.fruitninja"
+
+    // The MediaPipe model bundle is a zip of tflite models: keep it stored
+    // (uncompressed) so it can be memory-mapped instead of inflated into RAM.
+    androidResources {
+        noCompress += ["task"]
+    }
     defaultConfig {
         applicationId "com.fruitninja"
         minSdkVersion rootProject.ext.minSdkVersion
