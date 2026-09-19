@@ -105,9 +105,11 @@ class HandsController(
     private class Frame(
         val bitmap: Bitmap,
         val frameTimeMs: Double,
+        /** Clockwise rotation that makes the RAW frame upright (CameraX ImageInfo.rotationDegrees). */
         val rotationDegrees: Int,
-        val uprightWidth: Int,
-        val uprightHeight: Int,
+        /** Size of the RAW analysis buffer, as delivered by the camera (before rotation). */
+        val rawWidth: Int,
+        val rawHeight: Int,
     )
 
     private class BitmapPool(private val max: Int) {
@@ -549,14 +551,13 @@ class HandsController(
                 copyRgbaInto(image, bitmap)
 
                 val rotation = image.imageInfo.rotationDegrees
-                val sideways = rotation == 90 || rotation == 270
                 stamp = s.mono.next(arrivalMs.toLong())
                 val frame = Frame(
                     bitmap = bitmap,
                     frameTimeMs = arrivalMs,
                     rotationDegrees = rotation,
-                    uprightWidth = if (sideways) image.height else image.width,
-                    uprightHeight = if (sideways) image.width else image.height,
+                    rawWidth = image.width,
+                    rawHeight = image.height,
                 )
                 if (!s.tracker.tryAdd(stamp, frame)) {
                     s.stats.framesDroppedBusy.incrementAndGet()
@@ -646,8 +647,12 @@ class HandsController(
             map.putDouble("seq", s.seq.incrementAndGet().toDouble())
             map.putDouble("frameTimeMs", frame.frameTimeMs)
             map.putDouble("emitTimeMs", SystemClock.elapsedRealtimeNanos() / 1_000_000.0)
-            map.putInt("imageWidth", frame.uprightWidth)
-            map.putInt("imageHeight", frame.uprightHeight)
+            // Landmarks are normalised to the RAW frame (MediaPipe applies the rotation
+            // internally as a region-of-interest rotation and reports results in the
+            // input image's own coordinates, verified against a live camera). JS
+            // rotates by `rotationDegrees` exactly once; native never rotates or mirrors.
+            map.putInt("imageWidth", frame.rawWidth)
+            map.putInt("imageHeight", frame.rawHeight)
             map.putInt("rotationDegrees", frame.rotationDegrees)
             map.putString("lens", s.config.lensName)
             map.putDouble("inferenceMs", inferenceMs)

@@ -60,6 +60,20 @@ react {
 def enableProguardInReleaseBuilds = false
 
 /**
+ * Release settings come from a Gradle property (-P or ~/.gradle/gradle.properties) or an
+ * environment variable, both named FRUITNINJA_<NAME>. Values are never printed.
+ */
+def releaseSetting(String name) {
+    def key = "FRUITNINJA_${name}"
+    def fromProperty = project.findProperty(key)
+    def value = fromProperty != null ? fromProperty.toString() : System.getenv(key)
+    return (value == null || value.trim().isEmpty()) ? null : value
+}
+
+def uploadKeyConfigured = ["UPLOAD_STORE_FILE", "UPLOAD_STORE_PASSWORD", "UPLOAD_KEY_ALIAS", "UPLOAD_KEY_PASSWORD"]
+    .every { releaseSetting(it) != null }
+
+/**
  * The preferred build flavor of JavaScriptCore (JSC)
  *
  * For example, to use the international variant, you can use:
@@ -85,11 +99,15 @@ android {
         noCompress += ["task"]
     }
     defaultConfig {
-        applicationId "com.fruitninja"
+        // Release-time decisions, overridable without editing this file (Gradle property
+        // or environment variable): the public application ID must be owner-approved
+        // before the first upload and can never change afterwards, and versionCode
+        // must increase with every upload. See docs/android/RELEASE_CHECKLIST.md.
+        applicationId releaseSetting("APPLICATION_ID") ?: "com.fruitninja"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode((releaseSetting("VERSION_CODE") ?: "1").toInteger())
+        versionName releaseSetting("VERSION_NAME") ?: "1.0"
     }
     signingConfigs {
         debug {
@@ -98,18 +116,84 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        // The upload key is supplied privately (environment or ~/.gradle/gradle.properties,
+        // never the repository). If it is absent this config stays empty and any release
+        // build FAILS (see the guard below): there is no silent fallback to debug signing.
+        release {
+            if (uploadKeyConfigured) {
+                storeFile file(releaseSetting("UPLOAD_STORE_FILE"))
+                storePassword releaseSetting("UPLOAD_STORE_PASSWORD")
+                keyAlias releaseSetting("UPLOAD_KEY_ALIAS")
+                keyPassword releaseSetting("UPLOAD_KEY_PASSWORD")
+            }
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            signingConfig signingConfigs.release
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Release guards
+// ---------------------------------------------------------------------------
+
+// 1. Refuse to build a release artifact without the private upload key. Names only
+//    are printed: values (passwords, paths) are never logged.
+gradle.taskGraph.whenReady { graph ->
+    def buildsRelease = graph.allTasks.any {
+        it.project == project && (it.name == "assembleRelease" || it.name == "bundleRelease")
+    }
+    if (buildsRelease && !uploadKeyConfigured) {
+        throw new GradleException(
+            "Release signing is not configured, so no release artifact will be built " +
+            "(it is deliberately NOT signed with the debug key).\n" +
+            "Provide the private upload key through environment variables or " +
+            "~/.gradle/gradle.properties (never commit it):\n" +
+            "  FRUITNINJA_UPLOAD_STORE_FILE, FRUITNINJA_UPLOAD_STORE_PASSWORD,\n" +
+            "  FRUITNINJA_UPLOAD_KEY_ALIAS, FRUITNINJA_UPLOAD_KEY_PASSWORD\n" +
+            "See docs/android/RELEASE_CHECKLIST.md.")
+    }
+}
+
+// 2. The privacy design is "no network access" (MediaPipe's usage logger, which would
+//    send diagnostics to Google, cannot run without it). Fail the release build if the
+//    MERGED manifest ever requests a network permission, e.g. after adding a dependency.
+tasks.register("verifyReleaseHasNoNetworkPermissions") {
+    dependsOn "processReleaseMainManifest"
+    doLast {
+        def forbidden = [
+            "android.permission.INTERNET",
+            "android.permission.ACCESS_NETWORK_STATE",
+            "android.permission.ACCESS_WIFI_STATE",
+        ]
+        def manifests = fileTree(
+            dir: layout.buildDirectory.dir("intermediates/merged_manifest/release"),
+            include: "**/AndroidManifest.xml").files
+        if (manifests.isEmpty()) {
+            throw new GradleException("Merged release manifest not found: cannot verify permissions")
+        }
+        manifests.each { file ->
+            def text = file.text
+            def found = forbidden.findAll { text.contains("\"${it}\"") }
+            if (!found.isEmpty()) {
+                throw new GradleException(
+                    "The merged RELEASE manifest requests network permission(s) ${found}. " +
+                    "The app promises no network access (see PrivacyScreen and the Data safety " +
+                    "draft). Remove the dependency or update the privacy documents deliberately.")
+            }
+        }
+    }
+}
+afterEvaluate {
+    tasks.matching { it.name == "assembleRelease" || it.name == "bundleRelease" }.configureEach {
+        dependsOn "verifyReleaseHasNoNetworkPermissions"
     }
 }
 

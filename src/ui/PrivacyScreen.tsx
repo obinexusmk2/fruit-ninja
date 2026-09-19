@@ -2,7 +2,7 @@ import React from 'react';
 import {ScrollView, StyleSheet, Text, View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {Button} from './Button';
-import {colors, shared} from './theme';
+import {colors, contentColumn, shared} from './theme';
 
 interface PrivacyScreenProps {
   onBack: () => void;
@@ -20,6 +20,7 @@ export function PrivacyScreen({onBack}: PrivacyScreenProps): React.JSX.Element {
       style={styles.root}
       contentContainerStyle={[
         styles.content,
+        contentColumn,
         {paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24},
       ]}>
       <Text style={styles.h1} accessibilityRole="header">

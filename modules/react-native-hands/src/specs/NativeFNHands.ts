@@ -8,13 +8,18 @@ import {TurboModuleRegistry} from 'react-native';
  * opens the camera, never receives image data, and never sees a frame: only
  * small, timestamped landmark samples cross the bridge.
  *
- * Coordinate contract (applied once, in this order, and never twice):
- *  1. Native runs MediaPipe with the frame's rotation, so `landmarks` are
- *     normalised [0..1] in the UPRIGHT (rotation-corrected) analysis image.
- *     `imageWidth`/`imageHeight` are that upright image's pixel size.
- *  2. Native does NOT mirror and does NOT crop. `lens === 'front'` tells JS the
- *     camera preview is displayed mirrored, so JS mirrors x exactly once.
- *  3. JS maps the upright frame into the game viewport (cover/contain crop and
+ * Coordinate contract (each step is applied exactly once, in this order):
+ *  1. `landmarks` are normalised [0..1] in the RAW analysis image, i.e. the
+ *     buffer exactly as the camera delivered it. MediaPipe is given the frame's
+ *     rotation but reports results in the input image's own coordinates
+ *     (verified on a live camera: treating them as already upright drew the
+ *     skeleton rotated and stretched). `imageWidth`/`imageHeight` are the RAW
+ *     buffer size.
+ *  2. `rotationDegrees` is the clockwise rotation that makes the raw frame
+ *     upright. JS applies it (native does not).
+ *  3. Native does NOT mirror and does NOT crop. `lens === 'front'` means the
+ *     preview is shown mirrored, so JS mirrors x once, after rotating.
+ *  4. JS maps the upright frame into the game viewport (cover/contain crop and
  *     canvas offset). See src/input/transforms.ts in the app.
  */
 
@@ -73,9 +78,10 @@ export type HandFrameEvent = {
   frameTimeMs: number;
   /** Elapsed-realtime clock (ms) when the sample was handed to JS. */
   emitTimeMs: number;
+  /** RAW analysis buffer size (before rotation). */
   imageWidth: number;
   imageHeight: number;
-  /** Rotation MediaPipe applied (informational: already applied to landmarks). */
+  /** Clockwise rotation (0/90/180/270) that makes the raw frame upright; JS applies it. */
   rotationDegrees: number;
   lens: string;
   /** Milliseconds from submission to result (native inference latency). */

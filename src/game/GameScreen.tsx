@@ -14,7 +14,13 @@ import {drawBlade} from '../skia/drawBlade';
 import {drawFruit, drawSplash} from '../skia/drawFruit';
 import {SPRITES, FRUIT_SPLASH_KEY} from './assets';
 import type {FruitEntity, FruitKind, GameOverReason, SimEvent} from './types';
-import {LIVES_START} from './constants';
+import {
+  COLLISION_WINDOW_MS,
+  DIFFICULTY_RULES,
+  HAND_COLLISION_WINDOW_MS,
+  type Difficulty,
+} from './constants';
+import {difficultyTuning} from './config';
 import {HUD} from '../ui/HUD';
 import {noHaptics, type Haptics} from '../ui/haptics';
 import type {BladeSet} from '../input/bladeSet';
@@ -24,11 +30,15 @@ import {defaultClock, type BladeCount, type Clock, type InputMode} from '../inpu
 
 /** Longest we wait for sprites before starting anyway. */
 export const ASSET_WAIT_TIMEOUT_MS = 5000;
+/** How long a combo / critical banner stays up. */
+export const BANNER_MS = 1000;
 
 export interface GameScreenProps {
   /** Shared blade trails; the input layer writes them, this screen reads them. */
   blades: BladeSet;
   mode: InputMode;
+  /** Casual (default), Challenge or Practice: sets lives, warm-up and bombs for this game. */
+  difficulty?: Difficulty;
   /** false while paused or calibrating: the loop stops and timing is reset on resume. */
   running: boolean;
   /** 'image' draws the game background; 'camera' leaves the canvas transparent over the preview. */
@@ -39,6 +49,8 @@ export interface GameScreenProps {
   /** Called exactly once per game, when the game ends. */
   onGameOver: (score: number, reason: GameOverReason) => void;
   onPause?: () => void;
+  /** false while calibrating: a score, lives and pause button under the overlay would only be noise. */
+  showHud?: boolean;
   clock?: Clock;
   /** Test hook: deterministic random source. */
   rng?: () => number;
@@ -76,6 +88,7 @@ function useSprites(): Record<string, SkImage | null> {
 export function GameScreen({
   blades,
   mode,
+  difficulty = 'casual',
   running,
   backdrop,
   bladeCount = 2,
@@ -83,6 +96,7 @@ export function GameScreen({
   haptics = noHaptics,
   onGameOver,
   onPause,
+  showHud = true,
   clock = defaultClock,
   rng = Math.random,
 }: GameScreenProps): React.JSX.Element {
@@ -113,8 +127,32 @@ export function GameScreen({
   const [ready, setReady] = useState(false);
   const sizeRef = useRef({width: 0, height: 0});
 
-  const [hud, setHud] = useState({score: 0, lives: LIVES_START});
+  const startingLives = DIFFICULTY_RULES[difficulty].lives;
+  const [hud, setHud] = useState({score: 0, lives: startingLives});
   const hudRef = useRef(hud);
+  const difficultyRef = useRef(difficulty);
+  difficultyRef.current = difficulty;
+
+  // Short-lived banner for combos and critical hits.
+  const [banner, setBanner] = useState<{text: string; id: number} | null>(null);
+  const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const bannerId = useRef(0);
+  const showBanner = useCallback((text: string) => {
+    bannerId.current++;
+    setBanner({text, id: bannerId.current});
+    if (bannerTimer.current) {
+      clearTimeout(bannerTimer.current);
+    }
+    bannerTimer.current = setTimeout(() => setBanner(null), BANNER_MS);
+  }, []);
+  useEffect(
+    () => () => {
+      if (bannerTimer.current) {
+        clearTimeout(bannerTimer.current);
+      }
+    },
+    [],
+  );
   const [picture, setPicture] = useState<SkPicture | null>(null);
 
   const gameOverSent = useRef(false);
@@ -133,6 +171,14 @@ export function GameScreen({
     touchRef.current?.setBladeCount(bladeCount);
   }, [bladeCount]);
 
+  // Camera samples are older than touch samples, so hand mode needs a wider
+  // collision window (see HAND_COLLISION_WINDOW_MS).
+  useEffect(() => {
+    simRef.current?.setTuning({
+      collisionWindowMs: mode === 'hand' ? HAND_COLLISION_WINDOW_MS : COLLISION_WINDOW_MS,
+    });
+  }, [mode, ready]);
+
   const onLayout = useCallback(
     (e: LayoutChangeEvent) => {
       const {width, height} = e.nativeEvent.layout;
@@ -141,7 +187,12 @@ export function GameScreen({
       }
       sizeRef.current = {width, height};
       if (!simRef.current) {
-        simRef.current = new GameSimulation({width, height}, blades.trails, rng);
+        simRef.current = new GameSimulation(
+          {width, height},
+          blades.trails,
+          rng,
+          difficultyTuning(difficultyRef.current),
+        );
         setReady(true);
       } else {
         simRef.current.resize({width, height});
@@ -159,6 +210,10 @@ export function GameScreen({
         h.bomb();
       } else if (ev.type === 'miss') {
         h.miss();
+      } else if (ev.type === 'combo') {
+        showBanner(`COMBO ×${ev.count}`);
+      } else if (ev.type === 'critical') {
+        showBanner(`CRITICAL +${ev.bonus}`);
       } else if (ev.type === 'gameover' && !gameOverSent.current) {
         gameOverSent.current = true;
         over(ev.score, ev.reason);
@@ -169,7 +224,7 @@ export function GameScreen({
       hudRef.current = {score, lives};
       setHud(hudRef.current);
     }
-  }, []);
+  }, [showBanner]);
 
   const buildPicture = useCallback((sim: GameSimulation): SkPicture => {
     const cfg = sim.getConfig();
@@ -284,7 +339,20 @@ export function GameScreen({
           testID="touch-surface"
         />
       ) : null}
-      <HUD score={hud.score} lives={hud.lives} livesMax={LIVES_START} onPause={onPause} />
+      {showHud ? (
+        <HUD score={hud.score} lives={hud.lives} livesMax={startingLives} onPause={onPause} />
+      ) : null}
+      {banner ? (
+        <View style={styles.banner} pointerEvents="none">
+          <Text
+            style={styles.bannerText}
+            accessibilityLiveRegion="polite"
+            maxFontSizeMultiplier={1.3}
+            testID="banner">
+            {banner.text}
+          </Text>
+        </View>
+      ) : null}
       {!assetsReady ? (
         <View style={styles.loading} pointerEvents="none" accessibilityLiveRegion="polite">
           <Text style={styles.loadingText}>LOADING</Text>
@@ -300,6 +368,23 @@ const styles = StyleSheet.create({
     // Transparent so the camera preview (a sibling behind this screen) shows
     // through in hand mode; the touch background is drawn by the canvas.
     backgroundColor: 'transparent',
+  },
+  banner: {
+    position: 'absolute',
+    top: '22%',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  bannerText: {
+    fontFamily: 'monospace',
+    fontSize: 30,
+    fontWeight: 'bold',
+    color: '#FFD700',
+    letterSpacing: 3,
+    textShadowColor: '#000',
+    textShadowOffset: {width: 2, height: 2},
+    textShadowRadius: 6,
   },
   loading: {
     ...StyleSheet.absoluteFill,

@@ -14,8 +14,11 @@ export function spawnFruit(
   pool: FruitPool,
   config: GameConfig,
   rng: Rng,
+  options: {noBomb?: boolean} = {},
 ): FruitEntity | null {
-  const isBomb = rng() < config.bombChance;
+  // The random draw is always consumed so a seeded run stays reproducible.
+  const bombRoll = rng() < config.bombChance;
+  const isBomb = bombRoll && !options.noBomb;
   const kind: FruitKind | 'bomb' = isBomb
     ? 'bomb'
     : FRUIT_KINDS[Math.floor(rng() * FRUIT_KINDS.length)] ?? 'apple';

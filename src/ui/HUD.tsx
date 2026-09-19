@@ -11,6 +11,8 @@ interface HUDProps {
 }
 
 export const PAUSE_BUTTON_SIZE = 52;
+/** More lives than this are shown as "icon ×N" instead of one icon per life. */
+export const COMPACT_LIVES_ABOVE = 5;
 
 function HUDBase({
   score,
@@ -19,7 +21,10 @@ function HUDBase({
   onPause,
 }: HUDProps): React.JSX.Element {
   const insets = useSafeAreaInsets();
-  const lifeSlots = Array.from({length: livesMax}, (_, i) => i);
+  // Up to 5 lives are shown as icons; more (Casual has 15) would not fit in a
+  // row, so a single icon with a count is used instead.
+  const compact = livesMax > COMPACT_LIVES_ABOVE;
+  const lifeSlots = compact ? [] : Array.from({length: livesMax}, (_, i) => i);
 
   return (
     <View
@@ -42,15 +47,29 @@ function HUDBase({
           {score}
         </Text>
         <View style={styles.lives}>
-          {lifeSlots.map(i => (
-            <Image
-              key={i}
-              source={SPRITES.apple}
-              style={[styles.lifeIcon, i >= lives && styles.lifeLost]}
-              accessibilityElementsHidden
-              importantForAccessibility="no"
-            />
-          ))}
+          {compact ? (
+            <>
+              <Image
+                source={SPRITES.apple}
+                style={styles.lifeIcon}
+                accessibilityElementsHidden
+                importantForAccessibility="no"
+              />
+              <Text style={styles.lifeCount} maxFontSizeMultiplier={1.3} testID="hud-lives-count">
+                ×{lives}
+              </Text>
+            </>
+          ) : (
+            lifeSlots.map(i => (
+              <Image
+                key={i}
+                source={SPRITES.apple}
+                style={[styles.lifeIcon, i >= lives && styles.lifeLost]}
+                accessibilityElementsHidden
+                importantForAccessibility="no"
+              />
+            ))
+          )}
         </View>
       </View>
 
@@ -105,6 +124,16 @@ const styles = StyleSheet.create({
   },
   lifeLost: {
     opacity: 0.25,
+  },
+  lifeCount: {
+    fontFamily: 'monospace',
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#FFF',
+    alignSelf: 'center',
+    textShadowColor: '#000',
+    textShadowOffset: {width: 1, height: 1},
+    textShadowRadius: 3,
   },
   pause: {
     width: PAUSE_BUTTON_SIZE,

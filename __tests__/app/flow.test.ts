@@ -145,6 +145,74 @@ describe('hand flow', () => {
   });
 });
 
+describe('camera failures and permission loss', () => {
+  const atSetup = run([{type: 'START', mode: 'hand'}, {type: 'BOOT_DONE'}]);
+  const playing = run([{type: 'CAMERA_READY'}, {type: 'CALIBRATED'}], atSetup);
+  const error = {code: 'E_CAMERA_IN_USE', message: 'Camera is in use'};
+
+  test('a camera failure while calibrating returns to setup with the reason', () => {
+    const cal = flowReducer(atSetup, {type: 'CAMERA_READY'});
+    const s = flowReducer(cal, {type: 'CAMERA_ERROR', error});
+    expect(s).toMatchObject({screen: 'setup', cameraError: error});
+    expect(cameraShouldRun(s)).toBe(false);
+    // Retrying clears the error.
+    expect(flowReducer(s, {type: 'CAMERA_READY'})).toMatchObject({
+      screen: 'calibrating',
+      cameraError: null,
+    });
+  });
+
+  test('a camera failure mid-game pauses; touch continues the SAME game', () => {
+    const paused = flowReducer(playing, {type: 'CAMERA_ERROR', error});
+    expect(paused).toMatchObject({
+      screen: 'paused',
+      pauseReason: 'camera-error',
+      cameraError: error,
+    });
+    expect(cameraShouldRun(paused)).toBe(false);
+    const touch = flowReducer(paused, {type: 'SWITCH_TO_TOUCH'});
+    expect(touch).toMatchObject({
+      screen: 'playing',
+      mode: 'touch',
+      gameId: playing.gameId,
+      cameraError: null,
+    });
+  });
+
+  test('camera errors are ignored in touch mode and outside hand screens', () => {
+    const touchPlay = run([{type: 'START', mode: 'touch'}, {type: 'BOOT_DONE'}]);
+    expect(flowReducer(touchPlay, {type: 'CAMERA_ERROR', error})).toBe(touchPlay);
+    expect(flowReducer(initialFlow, {type: 'CAMERA_ERROR', error})).toBe(initialFlow);
+  });
+
+  test('permission revoked mid-game: back to setup, then the same game continues after re-grant', () => {
+    const lost = flowReducer(playing, {type: 'PERMISSION_LOST'});
+    expect(lost).toMatchObject({screen: 'setup', resuming: true, gameId: playing.gameId});
+    expect(cameraShouldRun(lost)).toBe(false);
+    const cal = flowReducer(lost, {type: 'CAMERA_READY'});
+    expect(cal).toMatchObject({screen: 'calibrating', resuming: true});
+    const back = flowReducer(cal, {type: 'CALIBRATED'});
+    expect(back).toMatchObject({screen: 'playing', resuming: false, gameId: playing.gameId});
+  });
+
+  test('permission lost while paused or calibrating also returns to setup', () => {
+    const paused = flowReducer(playing, {type: 'PAUSE', reason: 'user'});
+    expect(flowReducer(paused, {type: 'PERMISSION_LOST'}).screen).toBe('setup');
+    const cal = flowReducer(atSetup, {type: 'CAMERA_READY'});
+    const fromCal = flowReducer(cal, {type: 'PERMISSION_LOST'});
+    expect(fromCal.screen).toBe('setup');
+    expect(fromCal.resuming).toBe(false); // a fresh game was never started
+  });
+
+  test('permission loss is irrelevant to touch mode, home and game over', () => {
+    const touchPlay = run([{type: 'START', mode: 'touch'}, {type: 'BOOT_DONE'}]);
+    expect(flowReducer(touchPlay, {type: 'PERMISSION_LOST'})).toBe(touchPlay);
+    expect(flowReducer(initialFlow, {type: 'PERMISSION_LOST'})).toBe(initialFlow);
+    const over = flowReducer(playing, {type: 'GAME_OVER', score: 1, reason: 'lives'});
+    expect(flowReducer(over, {type: 'PERMISSION_LOST'})).toBe(over);
+  });
+});
+
 describe('guards and ownership', () => {
   test('actions that do not apply to the current screen are ignored', () => {
     expect(flowReducer(initialFlow, {type: 'CALIBRATED'})).toBe(initialFlow);

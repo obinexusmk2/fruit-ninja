@@ -8,13 +8,19 @@ export const PHONE: Viewport = {width: 360, height: 800};
 
 /** A simulation with no automatic spawns unless a test asks for them. */
 export function makeSim(
-  opts: {viewport?: Viewport; overrides?: GameTuning; seed?: number} = {},
+  opts: {
+    viewport?: Viewport;
+    overrides?: GameTuning;
+    seed?: number;
+    /** Inject a fixed random source instead of the seeded PRNG. */
+    rng?: () => number;
+  } = {},
 ) {
   const blades: BladeTrail[] = [createTrail(0, '#00FFFF'), createTrail(1, '#FF6600')];
   const sim = new GameSimulation(
     opts.viewport ?? PHONE,
     blades,
-    mulberry32(opts.seed ?? 1234),
+    opts.rng ?? mulberry32(opts.seed ?? 1234),
     {firstSpawnDelayMs: 1e12, ...opts.overrides},
   );
   return {sim, blades};

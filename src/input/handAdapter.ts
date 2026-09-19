@@ -12,6 +12,7 @@ import {
   LANDMARKS_PER_HAND,
   VALUES_PER_HAND,
   type FrameGeometry,
+  type Rotation,
   type ViewGeometry,
 } from './transforms';
 import {defaultClock, type Clock, type Point} from './types';
@@ -23,8 +24,11 @@ export interface HandFrameLike {
   seq: number;
   frameTimeMs: number;
   emitTimeMs: number;
+  /** RAW analysis buffer size (before rotation): landmarks are normalised to it. */
   imageWidth: number;
   imageHeight: number;
+  /** Clockwise rotation (0/90/180/270) that makes the raw frame upright. */
+  rotationDegrees: number;
   lens: string;
   handCount: number;
   landmarks: ArrayLike<number>;
@@ -234,12 +238,14 @@ export class HandAdapter {
     this.stats.accepted++;
     this.stats.receiveAge.add(Math.max(0, age));
 
-    // Landmarks are normalised to the UPRIGHT frame (native applied the rotation),
-    // never mirrored or cropped by native: mirror once here for the front camera.
+    // Landmarks are normalised to the RAW frame. Native reports the raw size and
+    // the rotation but rotates/mirrors/crops nothing, so every step (rotate to
+    // upright, mirror once for the front camera, cover/contain, canvas offset)
+    // happens exactly once, here, in landmarkToCanvas.
     const geometry: FrameGeometry = {
       width: frame.imageWidth,
       height: frame.imageHeight,
-      rotationDegrees: 0,
+      rotationDegrees: frame.rotationDegrees as Rotation,
       mirror: frame.lens === 'front',
     };
 
@@ -340,6 +346,10 @@ function isValidFrame(f: HandFrameLike): boolean {
     Number.isFinite(f.emitTimeMs) &&
     f.imageWidth > 0 &&
     f.imageHeight > 0 &&
+    (f.rotationDegrees === 0 ||
+      f.rotationDegrees === 90 ||
+      f.rotationDegrees === 180 ||
+      f.rotationDegrees === 270) &&
     f.handCount >= 0 &&
     f.landmarks.length >= f.handCount * VALUES_PER_HAND
   );

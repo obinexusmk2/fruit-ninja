@@ -4,7 +4,7 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import type {PauseReason} from '../app/flow';
 import type {InputMode} from '../input/types';
 import {Button} from './Button';
-import {colors, shared} from './theme';
+import {colors, contentColumn, shared} from './theme';
 
 interface PauseOverlayProps {
   reason: PauseReason;
@@ -19,6 +19,7 @@ const TITLES: Record<PauseReason, string> = {
   user: 'PAUSED',
   background: 'PAUSED',
   'tracking-lost': 'HANDS LOST',
+  'camera-error': 'CAMERA PROBLEM',
 };
 
 export function PauseOverlay({
@@ -32,7 +33,9 @@ export function PauseOverlay({
   const insets = useSafeAreaInsets();
   const hand = mode === 'hand';
   const detail =
-    reason === 'tracking-lost'
+    reason === 'camera-error'
+      ? 'The camera stopped working, so the game paused. Nothing was lost. You can try again, or keep playing with touch.'
+      : reason === 'tracking-lost'
       ? 'The camera could not see your hands for a while, so the game paused. Nothing was lost. Raise your hands to continue.'
       : hand
       ? 'The camera is off while paused. Resume to raise your hands again.'
@@ -42,6 +45,7 @@ export function PauseOverlay({
       <ScrollView
         contentContainerStyle={[
           styles.content,
+          contentColumn,
           {paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24},
         ]}>
         <Text style={styles.title} accessibilityRole="header" maxFontSizeMultiplier={1.3}>

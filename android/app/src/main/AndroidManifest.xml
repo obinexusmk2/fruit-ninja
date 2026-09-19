@@ -12,6 +12,12 @@
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
     <uses-feature android:name="android.hardware.camera.front" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+    <!--
+      The activity requests portrait, which Play would otherwise treat as a REQUIRED
+      portrait screen and so hide the game from landscape-only devices. Phones stay
+      portrait-first; larger screens may rotate and resize (API 36 ignores the lock there).
+    -->
+    <uses-feature android:name="android.hardware.screen.portrait" android:required="false" />
 
     <!--
       No INTERNET permission here: the game needs no network. Debug builds add it

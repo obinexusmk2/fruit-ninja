@@ -1,15 +1,16 @@
 import React, {useCallback, useEffect, useMemo, useReducer, useState} from 'react';
-import {AppState, BackHandler, StyleSheet, Text, View} from 'react-native';
+import {AppState, BackHandler, StyleSheet, View} from 'react-native';
 import {GestureHandlerRootView} from 'react-native-gesture-handler';
 import {SafeAreaProvider} from 'react-native-safe-area-context';
 import {BootScreen} from './boot/BootScreen';
-import {GameScreen} from './game/GameScreen';
+import {GameStage} from './app/GameStage';
+import {CameraSetupScreen} from './camera/CameraSetupScreen';
+import {nativeHandsClient} from './camera/handsClient';
 import {GameOver} from './ui/GameOver';
 import {HomeScreen} from './ui/HomeScreen';
-import {PauseOverlay} from './ui/PauseOverlay';
 import {PrivacyScreen} from './ui/PrivacyScreen';
-import {Button} from './ui/Button';
-import {colors, shared} from './ui/theme';
+import {colors} from './ui/theme';
+import {noHaptics, type Haptics} from './ui/haptics';
 import {bladeOwner, flowReducer, initialFlow} from './app/flow';
 import {BladeSet} from './input/bladeSet';
 import {useSettings} from './settings/useSettings';
@@ -19,6 +20,13 @@ import {
   TRAIL_VISUAL_TTL_MS,
 } from './game/constants';
 import type {GameOverReason} from './game/types';
+
+/** Haptics go through the native module (no VIBRATE permission needed). */
+const nativeHaptics: Haptics = {
+  slice: () => nativeHandsClient.haptic('slice'),
+  bomb: () => nativeHandsClient.haptic('bomb'),
+  miss: () => nativeHandsClient.haptic('miss'),
+};
 
 function AppContent(): React.JSX.Element {
   const [flow, dispatch] = useReducer(flowReducer, initialFlow);
@@ -84,13 +92,17 @@ function AppContent(): React.JSX.Element {
   const onGameOver = useCallback((score: number, reason: GameOverReason) => {
     dispatch({type: 'GAME_OVER', score, reason});
   }, []);
-  const onPause = useCallback(() => dispatch({type: 'PAUSE', reason: 'user'}), []);
   const onBootComplete = useCallback(() => dispatch({type: 'BOOT_DONE'}), []);
+  const onCameraReady = useCallback(() => dispatch({type: 'CAMERA_READY'}), []);
+  const onSwitchToTouch = useCallback(() => dispatch({type: 'SWITCH_TO_TOUCH'}), []);
+  const onHome = useCallback(() => dispatch({type: 'HOME'}), []);
 
   switch (flow.screen) {
     case 'home':
       return (
         <HomeScreen
+          difficulty={flow.difficulty}
+          onDifficultyChange={value => dispatch({type: 'SET_DIFFICULTY', value})}
           oneHand={flow.oneHand}
           reducedMotion={settings.reducedMotion}
           haptics={settings.haptics}
@@ -115,45 +127,29 @@ function AppContent(): React.JSX.Element {
       );
 
     case 'setup':
-    case 'calibrating':
-      // Hand mode screens are provided by the camera module (see src/camera).
       return (
-        <View style={styles.center}>
-          <Text style={shared.body}>Camera hand mode is not available yet.</Text>
-          <Button
-            label="Play with touch instead"
-            variant="primary"
-            onPress={() => dispatch({type: 'SWITCH_TO_TOUCH'})}
-          />
-        </View>
+        <CameraSetupScreen
+          onReady={onCameraReady}
+          onTouch={onSwitchToTouch}
+          onBack={onHome}
+          runtimeError={flow.cameraError}
+          oneHand={flow.oneHand}
+        />
       );
 
+    case 'calibrating':
     case 'playing':
     case 'paused':
       return (
-        <View style={styles.game}>
-          <GameScreen
-            key={flow.gameId}
-            blades={blades}
-            mode={flow.mode}
-            running={flow.screen === 'playing' && appActive}
-            backdrop={flow.mode === 'hand' ? 'camera' : 'image'}
-            bladeCount={flow.oneHand ? 1 : 2}
-            reducedMotion={settings.reducedMotion}
-            onGameOver={onGameOver}
-            onPause={onPause}
-          />
-          {flow.screen === 'paused' && flow.pauseReason ? (
-            <PauseOverlay
-              reason={flow.pauseReason}
-              mode={flow.mode}
-              onResume={() => dispatch({type: 'RESUME'})}
-              onRestart={() => dispatch({type: 'RESTART'})}
-              onHome={() => dispatch({type: 'HOME'})}
-              onSwitchToTouch={() => dispatch({type: 'SWITCH_TO_TOUCH'})}
-            />
-          ) : null}
-        </View>
+        <GameStage
+          flow={flow}
+          dispatch={dispatch}
+          blades={blades}
+          appActive={appActive}
+          reducedMotion={settings.reducedMotion}
+          haptics={settings.haptics ? nativeHaptics : noHaptics}
+          onGameOver={onGameOver}
+        />
       );
 
     case 'gameover':
@@ -161,8 +157,9 @@ function AppContent(): React.JSX.Element {
         <GameOver
           score={flow.finalScore}
           reason={flow.gameOverReason}
-          onRestart={() => dispatch({type: 'RESTART'})}
-          onHome={() => dispatch({type: 'HOME'})}
+          difficulty={flow.difficulty}
+          onRestart={difficulty => dispatch({type: 'RESTART', difficulty})}
+          onHome={onHome}
         />
       );
 
@@ -184,12 +181,4 @@ export function App(): React.JSX.Element {
 const styles = StyleSheet.create({
   root: {flex: 1, backgroundColor: colors.bg},
   game: {flex: 1, backgroundColor: colors.bg},
-  center: {
-    flex: 1,
-    backgroundColor: colors.bg,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-    gap: 16,
-  },
 });

@@ -86,6 +86,10 @@ export type SimEvent =
       slot: number;
       score: number;
     }
+  /** 3+ fruit in one swipe: `bonus` extra points were added (this swipe's score is doubled). */
+  | {type: 'combo'; count: number; bonus: number; slot: number; x: number; y: number}
+  /** A random critical hit: `bonus` extra points were added. */
+  | {type: 'critical'; bonus: number; x: number; y: number}
   | {type: 'bomb'; entityId: number; x: number; y: number; slot: number}
   | {type: 'miss'; entityId: number; kind: FruitKind; lives: number}
   | {type: 'gameover'; reason: GameOverReason; score: number};

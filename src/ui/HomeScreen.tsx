@@ -1,11 +1,74 @@
 import React from 'react';
-import {ScrollView, StyleSheet, Switch, Text, View} from 'react-native';
+import {Pressable, ScrollView, StyleSheet, Switch, Text, View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {APP_TAGLINE, APP_TITLE} from '../app/branding';
+import {DIFFICULTY_RULES, type Difficulty} from '../game/constants';
 import {Button} from './Button';
-import {colors, shared} from './theme';
+import {colors, contentColumn, MIN_TARGET, shared} from './theme';
+
+const DIFFICULTY_OPTIONS: ReadonlyArray<{
+  value: Difficulty;
+  title: string;
+  detail: string;
+}> = [
+  {
+    value: 'casual',
+    title: `Casual · ${DIFFICULTY_RULES.casual.lives} lives`,
+    detail: 'A gentle start: single fruit and no bombs for the first few seconds.',
+  },
+  {
+    value: 'challenge',
+    title: `Challenge · ${DIFFICULTY_RULES.challenge.lives} lives`,
+    detail: 'The original rules. Miss three fruit and it is over.',
+  },
+  {
+    value: 'practice',
+    title: 'Practice · no bombs',
+    detail: `Fruit only, ${DIFFICULTY_RULES.practice.lives} lives. Learn the swipe.`,
+  },
+];
+
+/** Game-type picker: one radio group, each option a large labelled target. */
+function DifficultyPicker({
+  value,
+  onChange,
+}: {
+  value: Difficulty;
+  onChange: (v: Difficulty) => void;
+}): React.JSX.Element {
+  return (
+    <View style={styles.panel} accessibilityRole="radiogroup" testID="difficulty-group">
+      <Text style={shared.body} maxFontSizeMultiplier={1.4}>
+        Game type
+      </Text>
+      {DIFFICULTY_OPTIONS.map(o => {
+        const selected = o.value === value;
+        return (
+          <Pressable
+            key={o.value}
+            onPress={() => onChange(o.value)}
+            accessibilityRole="radio"
+            accessibilityState={{checked: selected}}
+            accessibilityLabel={`${o.title}. ${o.detail}`}
+            testID={`difficulty-${o.value}`}
+            style={[styles.option, selected && styles.optionSelected]}>
+            <Text style={[shared.body, styles.optionTitle]} maxFontSizeMultiplier={1.4}>
+              {selected ? '● ' : '○ '}
+              {o.title}
+            </Text>
+            <Text style={shared.dim} maxFontSizeMultiplier={1.4}>
+              {o.detail}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
 
 interface HomeScreenProps {
+  difficulty: Difficulty;
+  onDifficultyChange: (value: Difficulty) => void;
   oneHand: boolean;
   reducedMotion: boolean;
   haptics: boolean;
@@ -55,6 +118,8 @@ function Row({
 
 /** Start / mode selection. The touch alternative is always one tap away. */
 export function HomeScreen({
+  difficulty,
+  onDifficultyChange,
   oneHand,
   reducedMotion,
   haptics,
@@ -71,6 +136,7 @@ export function HomeScreen({
       style={styles.root}
       contentContainerStyle={[
         styles.content,
+        contentColumn,
         {
           paddingTop: insets.top + 24,
           paddingBottom: insets.bottom + 24,
@@ -85,8 +151,9 @@ export function HomeScreen({
 
       <View style={styles.panel}>
         <Text style={shared.body} maxFontSizeMultiplier={1.4}>
-          Slice fruit, dodge bombs. You have 3 lives: each fruit you miss costs
-          one, and a bomb ends the game.
+          Slice fruit, dodge bombs. Each fruit you miss costs a life, and a bomb
+          ends the game. Slice 3 or more fruit in one swipe for a combo that
+          doubles that swipe's points.
         </Text>
         <Text style={[shared.dim, styles.tip]} maxFontSizeMultiplier={1.4}>
           Hand mode: stand the phone on a stable surface, then raise your hands
@@ -109,6 +176,8 @@ export function HomeScreen({
           testID="start-touch"
         />
       </View>
+
+      <DifficultyPicker value={difficulty} onChange={onDifficultyChange} />
 
       <View style={styles.panel}>
         <Row
@@ -163,6 +232,19 @@ const styles = StyleSheet.create({
   },
   tip: {marginTop: 2},
   buttons: {gap: 12},
+  option: {
+    minHeight: MIN_TARGET,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: 'rgba(0,255,255,0.25)',
+    padding: 12,
+    gap: 2,
+  },
+  optionSelected: {
+    borderColor: colors.cyan,
+    backgroundColor: 'rgba(0,255,255,0.10)',
+  },
+  optionTitle: {fontWeight: 'bold'},
   row: {flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 56},
   rowText: {flex: 1, gap: 2},
 });

@@ -39,14 +39,20 @@ export class GameSimulation {
   state: GameState;
 
   private config: GameConfig;
-  private readonly overrides: GameTuning;
+  private overrides: GameTuning;
   private readonly blades: readonly BladeTrail[];
   private readonly rng: Rng;
   private accumulatorMs = 0;
   private spawnTimerMs = 0;
+  /** Game time simulated so far (drives the warm-up). */
+  private elapsedMs = 0;
   private events: SimEvent[] = [];
   private hitSlot = -1;
+  private hitStroke = -1;
   private hitAngle = 0;
+  /** Per blade slot: the swipe (stroke) currently building a combo. */
+  private readonly combos: Array<{strokeId: number; count: number; lastMs: number}> = [];
+  private nowMs = 0;
 
   constructor(
     viewport: Viewport,
@@ -67,13 +73,24 @@ export class GameSimulation {
     return this.config;
   }
 
+  /**
+   * Changes tuning while a game runs (e.g. the wider collision window used for
+   * camera input). Entities and state are untouched.
+   */
+  setTuning(tuning: GameTuning): void {
+    this.overrides = {...this.overrides, ...tuning};
+    this.config = createGameConfig(this.config.viewport, this.overrides);
+  }
+
   /** Starts a new game: clears entities, score, lives, timers and events. */
   reset(): void {
     this.pool.releaseAll();
     this.state = this.freshState();
     this.accumulatorMs = 0;
+    this.elapsedMs = 0;
     this.spawnTimerMs = this.config.firstSpawnDelayMs;
     this.events = [];
+    this.combos.length = 0;
   }
 
   /**
@@ -178,14 +195,18 @@ export class GameSimulation {
   private step(dtMs: number, nowMs: number): void {
     const cfg = this.config;
     const dt = dtMs / 1000;
+    this.nowMs = nowMs;
 
     this.integrate(dt, dtMs);
+    this.elapsedMs += dtMs;
 
     this.spawnTimerMs -= dtMs;
     if (this.spawnTimerMs <= 0) {
-      const n = burstCount(cfg, this.rng);
+      // Warm-up: an easy start, one fruit at a time and no bombs.
+      const warm = this.elapsedMs < cfg.warmupMs;
+      const n = warm ? 1 : burstCount(cfg, this.rng);
       for (let i = 0; i < n; i++) {
-        if (!spawnFruit(this.pool, cfg, this.rng)) {
+        if (!spawnFruit(this.pool, cfg, this.rng, {noBomb: warm})) {
           this.state.droppedSpawns++;
         }
       }
@@ -284,6 +305,7 @@ export class GameSimulation {
         const a = trail.points[i - 1]!;
         const b = trail.points[i]!;
         this.hitSlot = trail.slot;
+        this.hitStroke = trail.strokeId;
         this.hitAngle = Math.atan2(b.y - a.y, b.x - a.x);
         return true;
       }
@@ -320,6 +342,47 @@ export class GameSimulation {
       slot: this.hitSlot,
       score: this.state.score,
     });
+    this.scoreExtras(e);
+  }
+
+  /**
+   * Combo: `comboMin` or more fruit sliced by ONE swipe (same blade, same
+   * stroke, each within `comboWindowMs` of the previous) double that swipe's
+   * score: reaching the minimum adds `comboMin` (matching the fruit already
+   * counted) and every further fruit adds one more.
+   * Critical hit: an independent random chance of `critBonus` extra points.
+   */
+  private scoreExtras(e: FruitEntity): void {
+    const cfg = this.config;
+    const slot = this.hitSlot;
+    let c = this.combos[slot];
+    if (!c) {
+      c = {strokeId: -1, count: 0, lastMs: -Infinity};
+      this.combos[slot] = c;
+    }
+    if (c.strokeId === this.hitStroke && this.nowMs - c.lastMs <= cfg.comboWindowMs) {
+      c.count++;
+    } else {
+      c.strokeId = this.hitStroke;
+      c.count = 1;
+    }
+    c.lastMs = this.nowMs;
+
+    let comboBonus = 0;
+    if (c.count === cfg.comboMin) {
+      comboBonus = cfg.comboMin;
+    } else if (c.count > cfg.comboMin) {
+      comboBonus = 1;
+    }
+    if (comboBonus > 0) {
+      this.state.score += comboBonus;
+      this.events.push({type: 'combo', count: c.count, bonus: comboBonus, slot, x: e.x, y: e.y});
+    }
+
+    if (cfg.critChance > 0 && this.rng() < cfg.critChance) {
+      this.state.score += cfg.critBonus;
+      this.events.push({type: 'critical', bonus: cfg.critBonus, x: e.x, y: e.y});
+    }
   }
 
   private cull(): void {

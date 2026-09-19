@@ -6,7 +6,37 @@
  * Time is in milliseconds and speeds are in px/s (or viewport-relative fractions
  * per second). Nothing here depends on the display refresh rate.
  */
+/**
+ * Engine default. The game itself starts from a Difficulty (below); 3 is the
+ * original rule and the "Challenge" setting.
+ */
 export const LIVES_START = 3;
+
+export type Difficulty = 'casual' | 'challenge' | 'practice';
+
+export interface DifficultyRules {
+  lives: number;
+  /** Easy start: for this long every burst is one fruit and no bombs spawn. */
+  warmupMs: number;
+  bombs: boolean;
+}
+
+/**
+ * Casual is the default so the game is easy to get into (the 3-life version
+ * ended within seconds). Challenge is the original 3-life rule, one tap away
+ * on the home screen and on the game-over screen. Practice is fruit only.
+ */
+export const DIFFICULTY_RULES: Record<Difficulty, DifficultyRules> = {
+  casual: {lives: 15, warmupMs: 10_000, bombs: true},
+  challenge: {lives: 3, warmupMs: 0, bombs: true},
+  practice: {lives: 15, warmupMs: 0, bombs: false},
+};
+
+/** Scoring extras (see GameSimulation.slice). */
+export const COMBO_MIN_FRUIT = 3; // fruit in ONE swipe to make a combo
+export const COMBO_WINDOW_MS = 350; // max gap between slices of the same swipe
+export const CRIT_BONUS = 10;
+export const CRIT_CHANCE = 0.03;
 export const POOL_SIZE = 32;
 export const BOMB_CHANCE = 0.07;
 
@@ -30,6 +60,14 @@ export const MAX_STEPS_PER_ADVANCE = 12;
 export const TRAIL_MAX_POINTS = 20;
 /** A segment can slice only while its newest sample is younger than this. */
 export const COLLISION_WINDOW_MS = 120;
+/**
+ * Camera samples are older than touch samples by the camera-to-JS pipeline
+ * (typically 50-130 ms), so the same 120 ms window would expire a segment
+ * before the game could ever use it. Hand mode therefore uses a wider window;
+ * stale input is still rejected earlier (HandAdapter.maxSampleAgeMs) and a
+ * vanished hand ends its stroke immediately.
+ */
+export const HAND_COLLISION_WINDOW_MS = 240;
 /** Trail samples older than this are dropped from the drawn trail. */
 export const TRAIL_VISUAL_TTL_MS = 260;
 /** A gap this long between samples ends the stroke instead of bridging it. */

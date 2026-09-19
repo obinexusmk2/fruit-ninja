@@ -1,3 +1,4 @@
+import type {Difficulty} from '../game/constants';
 import type {GameOverReason} from '../game/types';
 import type {InputMode} from '../input/types';
 
@@ -16,13 +17,21 @@ export type Screen =
   | 'gameover'
   | 'privacy';
 
-export type PauseReason = 'user' | 'background' | 'tracking-lost';
+export type PauseReason = 'user' | 'background' | 'tracking-lost' | 'camera-error';
+
+export interface CameraErrorInfo {
+  /** Native error code, e.g. E_CAMERA_IN_USE, E_MODEL. */
+  code: string;
+  message: string;
+}
 
 export interface FlowState {
   screen: Screen;
   mode: InputMode;
   /** One-hand accessibility mode: one blade, one required hand. */
   oneHand: boolean;
+  /** Casual (15 lives), Challenge (3 lives) or Practice (no bombs). */
+  difficulty: Difficulty;
   /** Identifies the current game; a change remounts the game screen. */
   gameId: number;
   bootSeen: boolean;
@@ -31,20 +40,26 @@ export interface FlowState {
   resuming: boolean;
   finalScore: number;
   gameOverReason: GameOverReason | null;
+  /** Last camera failure, shown on the setup screen / pause overlay. */
+  cameraError: CameraErrorInfo | null;
 }
 
 export type FlowAction =
   | {type: 'START'; mode: InputMode}
   | {type: 'BOOT_DONE'}
   | {type: 'CAMERA_READY'}
+  | {type: 'CAMERA_ERROR'; error: CameraErrorInfo}
+  | {type: 'PERMISSION_LOST'}
   | {type: 'SWITCH_TO_TOUCH'}
   | {type: 'CALIBRATED'}
   | {type: 'PAUSE'; reason: PauseReason}
   | {type: 'TRACKING_LOST'}
   | {type: 'RESUME'}
   | {type: 'GAME_OVER'; score: number; reason: GameOverReason}
-  | {type: 'RESTART'}
+  /** New game; optionally with another difficulty (e.g. "try the 3-life challenge"). */
+  | {type: 'RESTART'; difficulty?: Difficulty}
   | {type: 'HOME'}
+  | {type: 'SET_DIFFICULTY'; value: Difficulty}
   | {type: 'SET_ONE_HAND'; value: boolean}
   | {type: 'OPEN_PRIVACY'}
   | {type: 'CLOSE_PRIVACY'};
@@ -53,12 +68,14 @@ export const initialFlow: FlowState = {
   screen: 'home',
   mode: 'touch',
   oneHand: false,
+  difficulty: 'casual',
   gameId: 0,
   bootSeen: false,
   pauseReason: null,
   resuming: false,
   finalScore: 0,
   gameOverReason: null,
+  cameraError: null,
 };
 
 /** Where a mode goes after the boot presentation / on restart. */
@@ -80,6 +97,7 @@ export function flowReducer(state: FlowState, action: FlowAction): FlowState {
         pauseReason: null,
         finalScore: 0,
         gameOverReason: null,
+        cameraError: null,
       };
       return {
         ...next,
@@ -97,7 +115,44 @@ export function flowReducer(state: FlowState, action: FlowAction): FlowState {
       if (state.screen !== 'setup') {
         return state;
       }
-      return {...state, screen: 'calibrating'};
+      return {...state, screen: 'calibrating', cameraError: null};
+
+    case 'CAMERA_ERROR':
+      if (state.mode !== 'hand') {
+        return state;
+      }
+      // The camera failed while starting: back to setup, which explains why.
+      if (state.screen === 'calibrating') {
+        return {...state, screen: 'setup', cameraError: action.error};
+      }
+      // The camera failed mid-game: pause (touch is offered as a fallback).
+      if (state.screen === 'playing') {
+        return {
+          ...state,
+          screen: 'paused',
+          pauseReason: 'camera-error',
+          cameraError: action.error,
+        };
+      }
+      return state;
+
+    case 'PERMISSION_LOST':
+      // Revoked in Settings, or a one-time grant expired. Ask again; a game that
+      // was in progress continues (same gameId) after re-calibration.
+      if (
+        state.mode !== 'hand' ||
+        (state.screen !== 'calibrating' &&
+          state.screen !== 'playing' &&
+          state.screen !== 'paused')
+      ) {
+        return state;
+      }
+      return {
+        ...state,
+        screen: 'setup',
+        pauseReason: null,
+        resuming: state.screen === 'calibrating' ? state.resuming : true,
+      };
 
     case 'SWITCH_TO_TOUCH':
       // Available from setup (camera declined/unavailable) and from a pause
@@ -111,6 +166,7 @@ export function flowReducer(state: FlowState, action: FlowAction): FlowState {
         screen: 'playing',
         resuming: false,
         pauseReason: null,
+        cameraError: null,
       };
 
     case 'CALIBRATED':
@@ -157,12 +213,14 @@ export function flowReducer(state: FlowState, action: FlowAction): FlowState {
       }
       return {
         ...state,
+        difficulty: action.difficulty ?? state.difficulty,
         gameId: state.gameId + 1,
         screen: entryScreen(state.mode) === 'setup' ? 'calibrating' : 'playing',
         resuming: false,
         pauseReason: null,
         finalScore: 0,
         gameOverReason: null,
+        cameraError: null,
       };
 
     case 'HOME':
@@ -172,6 +230,10 @@ export function flowReducer(state: FlowState, action: FlowAction): FlowState {
         resuming: false,
         pauseReason: null,
       };
+
+    case 'SET_DIFFICULTY':
+      // Chosen on the home screen; it applies to the next game that starts.
+      return state.screen === 'home' ? {...state, difficulty: action.value} : state;
 
     case 'SET_ONE_HAND':
       return {...state, oneHand: action.value};

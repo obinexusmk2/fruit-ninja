@@ -4,6 +4,12 @@ import {
   BOMB_CHANCE,
   BOMB_RADIUS_RATIO,
   COLLISION_WINDOW_MS,
+  COMBO_MIN_FRUIT,
+  COMBO_WINDOW_MS,
+  CRIT_BONUS,
+  CRIT_CHANCE,
+  DIFFICULTY_RULES,
+  type Difficulty,
   FIRST_SPAWN_DELAY_MS,
   FIXED_STEP_MS,
   FRUIT_RADIUS_PER_UNIT,
@@ -57,6 +63,17 @@ export interface GameConfig {
   spawnBurstMin: number;
   spawnBurstMax: number;
   splashDurationMs: number;
+  /**
+   * Warm-up: for this long (game time) every burst is one fruit and no bombs
+   * spawn. 0 disables it.
+   */
+  warmupMs: number;
+  /** Fruit sliced in one swipe (same stroke) that make a combo; the combo doubles their score. */
+  comboMin: number;
+  comboWindowMs: number;
+  /** Chance that a slice is a critical hit worth `critBonus` extra points (0 = off). */
+  critChance: number;
+  critBonus: number;
   fixedStepMs: number;
   maxFrameDeltaMs: number;
   maxStepsPerAdvance: number;
@@ -68,6 +85,17 @@ export interface GameConfig {
 }
 
 export type GameTuning = Partial<Omit<GameConfig, 'viewport'>>;
+
+/** The engine tuning that a Difficulty selects (lives, warm-up, bombs, criticals). */
+export function difficultyTuning(difficulty: Difficulty): GameTuning {
+  const rules = DIFFICULTY_RULES[difficulty];
+  return {
+    livesStart: rules.lives,
+    warmupMs: rules.warmupMs,
+    bombChance: rules.bombs ? BOMB_CHANCE : 0,
+    critChance: CRIT_CHANCE,
+  };
+}
 
 const UNIT_MIN = 280;
 const UNIT_MAX = 900;
@@ -111,6 +139,11 @@ export function createGameConfig(
     spawnBurstMin: SPAWN_BURST_MIN,
     spawnBurstMax: SPAWN_BURST_MAX,
     splashDurationMs: SPLASH_DURATION_MS,
+    warmupMs: 0,
+    comboMin: COMBO_MIN_FRUIT,
+    comboWindowMs: COMBO_WINDOW_MS,
+    critChance: 0, // opt-in: the game turns it on (rulesToTuning); engine default keeps runs reproducible
+    critBonus: CRIT_BONUS,
     fixedStepMs: FIXED_STEP_MS,
     maxFrameDeltaMs: MAX_FRAME_DELTA_MS,
     maxStepsPerAdvance: MAX_STEPS_PER_ADVANCE,

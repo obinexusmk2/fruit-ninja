@@ -26,6 +26,8 @@ function mount(props: Partial<React.ComponentProps<typeof GameScreen>> = {}) {
       <GameScreen
         blades={blades}
         mode="touch"
+        // These tests were written against the original 3-life rules.
+        difficulty="challenge"
         running
         backdrop="image"
         onGameOver={onGameOver}
@@ -150,6 +152,7 @@ describe('GameScreen', () => {
       <GameScreen
         blades={blades}
         mode="touch"
+        difficulty="challenge"
         running={running}
         backdrop="image"
         rng={() => 0.5}
@@ -181,6 +184,7 @@ describe('GameScreen', () => {
       <GameScreen
         blades={blades}
         mode="touch"
+        difficulty="challenge"
         running={running}
         backdrop="image"
         rng={() => 0.5}

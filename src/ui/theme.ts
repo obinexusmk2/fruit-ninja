@@ -15,6 +15,14 @@ export const colors = {
 /** Minimum touch target (dp) for primary controls. */
 export const MIN_TARGET = 56;
 
+/** Menus stay a readable column on tablets and in landscape instead of stretching edge to edge. */
+export const CONTENT_MAX_WIDTH = 600;
+export const contentColumn = {
+  width: '100%',
+  maxWidth: CONTENT_MAX_WIDTH,
+  alignSelf: 'center',
+} as const;
+
 export const shared = StyleSheet.create({
   button: {
     minHeight: MIN_TARGET,

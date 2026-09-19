@@ -1,14 +1,17 @@
 import React from 'react';
 import {ScrollView, StyleSheet, Text, View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
+import {DIFFICULTY_RULES, type Difficulty} from '../game/constants';
 import type {GameOverReason} from '../game/types';
 import {Button} from './Button';
-import {colors, shared} from './theme';
+import {colors, contentColumn, shared} from './theme';
 
 interface GameOverProps {
   score: number;
   reason?: GameOverReason | null;
-  onRestart: () => void;
+  difficulty?: Difficulty;
+  /** Start another game, optionally at a different difficulty. */
+  onRestart: (difficulty?: Difficulty) => void;
   onHome?: () => void;
 }
 
@@ -20,6 +23,7 @@ const REASONS: Record<GameOverReason, string> = {
 export function GameOver({
   score,
   reason = null,
+  difficulty = 'casual',
   onRestart,
   onHome,
 }: GameOverProps): React.JSX.Element {
@@ -29,6 +33,7 @@ export function GameOver({
       <ScrollView
         contentContainerStyle={[
           styles.content,
+          contentColumn,
           {paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24},
         ]}>
         <Text style={styles.title} accessibilityRole="header" maxFontSizeMultiplier={1.3}>
@@ -47,7 +52,21 @@ export function GameOver({
           {score}
         </Text>
         <View style={styles.buttons}>
-          <Button label="Play again" variant="primary" onPress={onRestart} testID="play-again" />
+          <Button label="Play again" variant="primary" onPress={() => onRestart()} testID="play-again" />
+          {/* Stepping up (or back down) is one tap, right where the game ended. */}
+          {difficulty === 'challenge' ? (
+            <Button
+              label={`Back to casual (${DIFFICULTY_RULES.casual.lives} lives)`}
+              onPress={() => onRestart('casual')}
+              testID="switch-casual"
+            />
+          ) : (
+            <Button
+              label={`Try the ${DIFFICULTY_RULES.challenge.lives}-life challenge`}
+              onPress={() => onRestart('challenge')}
+              testID="switch-challenge"
+            />
+          )}
           {onHome ? <Button label="Home" onPress={onHome} testID="go-home" /> : null}
         </View>
       </ScrollView>

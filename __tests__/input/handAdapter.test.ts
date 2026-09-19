@@ -40,6 +40,8 @@ interface FrameOpts {
   hands: Array<[number, number]>;
   lens?: string;
   handedness?: number[];
+  /** RAW buffer size and the rotation that makes it upright (default: already-upright 480x640). */
+  raw?: {width: number; height: number; rotationDegrees: number};
 }
 
 function frame(o: FrameOpts): HandFrameLike {
@@ -50,8 +52,9 @@ function frame(o: FrameOpts): HandFrameLike {
     seq: o.seq ?? ++seq,
     frameTimeMs: o.frameNative,
     emitTimeMs: o.frameNative + delay - 5, // emitted a bit before receipt
-    imageWidth: 480,
-    imageHeight: 640,
+    imageWidth: o.raw?.width ?? 480,
+    imageHeight: o.raw?.height ?? 640,
+    rotationDegrees: o.raw?.rotationDegrees ?? 0,
     lens: o.lens ?? 'front',
     handCount: o.hands.length,
     landmarks: landmarks(o.hands),
@@ -113,6 +116,52 @@ describe('HandAdapter: normal operation', () => {
     const p = blades.trails[0]!.points[0]!;
     expect(p.x).toBeCloseTo(330, 3);
     expect(p.y).toBeCloseTo(400, 3);
+  });
+
+  // Regression for a bug found with a live camera: MediaPipe reports landmarks in the
+  // RAW (landscape, sideways) frame. Treating them as already upright drew the hand
+  // skeleton rotated by 90 degrees and stretched. The adapter must rotate them once.
+  test.each([
+    // raw (0.2, 0.7) in a 640x480 frame, rotate 90 CW => upright (0.3, 0.2), mirror => 0.7,
+    // cover 360x800 (x = -120 + 0.7*600 = 300, y = 0.2*800 = 160)
+    [90, 300, 160],
+    // rotate 270 => upright (0.7, 0.8), mirror => 0.3 => x = -120 + 0.3*600 = 60, y = 640
+    [270, 60, 640],
+  ] as const)(
+    'raw landscape frame rotated %d degrees lands at the right canvas position',
+    (rotationDegrees, expectedX, expectedY) => {
+      const {blades, adapter} = setup({tracker: {confirmFrames: 1}});
+      adapter.onFrame(
+        frame({
+          frameNative: 1000,
+          hands: [[0.2, 0.7]],
+          raw: {width: 640, height: 480, rotationDegrees},
+        }),
+      );
+      const p = blades.trails[0]!.points[0]!;
+      expect(p.x).toBeCloseTo(expectedX, 3);
+      expect(p.y).toBeCloseTo(expectedY, 3);
+    },
+  );
+
+  test('a raw sideways frame and the equivalent upright frame give the same canvas point', () => {
+    const a = setup({tracker: {confirmFrames: 1}});
+    a.adapter.onFrame(
+      frame({frameNative: 1000, hands: [[0.2, 0.7]], raw: {width: 640, height: 480, rotationDegrees: 90}}),
+    );
+    const b = setup({tracker: {confirmFrames: 1}});
+    b.adapter.onFrame(frame({frameNative: 1000, hands: [[0.3, 0.2]]})); // the same point, already upright
+    expect(a.blades.trails[0]!.points[0]!.x).toBeCloseTo(b.blades.trails[0]!.points[0]!.x, 6);
+    expect(a.blades.trails[0]!.points[0]!.y).toBeCloseTo(b.blades.trails[0]!.points[0]!.y, 6);
+  });
+
+  test('a rotation that is not a multiple of 90 degrees is rejected', () => {
+    const {blades, adapter} = setup();
+    const r = adapter.onFrame(
+      frame({frameNative: 1000, hands: steady, raw: {width: 480, height: 640, rotationDegrees: 45}}),
+    );
+    expect(r.reason).toBe('invalid');
+    expect(blades.trails.every(t => !t.active)).toBe(true);
   });
 
   test('the back camera is not mirrored', () => {
